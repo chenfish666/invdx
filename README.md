@@ -87,6 +87,12 @@ Treat gate failures as stop-the-line events.
 
 ## Measured performance doctrine (2026-08, this fleet)
 
+The performance work here follows the discipline the author picked up
+competing in HPC competitions: measure before believing, microbenchmark
+before surgery, and record dead ends so nobody re-walks them. Upstream
+engines are excellent physics codes; these notes are about squeezing THIS
+fleet's hardware, and anything generally useful gets offered upstream.
+
 - Meep MPI rank counts: **fewer beats more** — FDTD is memory-bandwidth
   bound. Measured on the dev fleet: 16-core Zen4 peaks at np=8 (np=16 is
   26-35% slower, np=32/SMT is 4x slower); dual-socket Xeon peaks at np=16
