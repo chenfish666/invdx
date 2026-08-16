@@ -11,15 +11,43 @@ specialize the hot loop for that subset and keep the general engine as the
 reference. Worth offering upstream once generalized.
 
 What it does differently (validated by scripts/13_curl_microbench.py on
-Turing, 16.8M cells, 1.89x kernel speedup, bitwise-identical output):
+Turing, 16.8M cells, 1.89x kernel speedup, bitwise-identical output; slab
+variant V5 re-validated bitwise at 256^3/200^3 with npml 16-32):
 
-  1. E/H live as THREE separate 3D arrays and psi_E/psi_H as SIX separate 3D
-     arrays through the whole time loop (component tuples). This eliminates
-     every jnp.stack / concatenate / dynamic-update-slice of (3,N)/(6,N)
-     state arrays that the upstream loop pays per half-step.
+  1. E/H live as THREE separate 3D arrays through the whole time loop
+     (component tuples). This eliminates every jnp.stack / concatenate /
+     dynamic-update-slice of (3,N) state arrays that the upstream loop pays
+     per half-step.
   2. The PML coefficients b, a (expm1-based) and 1/kappa are loop-invariant
      (they only depend on alpha/kappa/sigma) and are hoisted out of the time
-     loop as precomputed per-component constants.
+     loop as precomputed constants.
+  3. CPML state and coefficients live only on the PML slabs. With the
+     upstream defaults the base arrays are kappa=1, sigma=0, alpha=0 and the
+     PML objects write their graded profiles only inside their grid_slice
+     (rows axis and axis+3), so outside every slab b=1 and a=0 exactly and
+     psi (starting from 0) stays exactly 0 forever — verified empirically on
+     placed arrays in tests/test_fdtdx_perf.py. The interior curl is then
+     the plain Yee difference (kappa=1: the 1/kappa multiply drops), and
+     each psi component plus its b/a/1-kappa coefficients are stored as
+     slab-sized arrays only. Exactness in slab corners comes from
+     factorizing the curl per derivative axis: each factor
+     T = (1/kappa)*d + psi involves only ONE axis's coefficients, so
+     per-axis slab .at[slice].set updates compose exactly.
+
+  Slab-variant routing data (scripts/13 --slab, Quadro RTX 6000, donated
+  carry, H-half-step kernel, speedups vs the verbatim V0): 3-D slab
+  coefficient arrays (V5) track the per-axis slab fraction 2*npml/n and
+  can LOSE to V4 at high fractions (2.71x at 12%, but 1.71x-vs-V4's-1.91x
+  at the misaligned 20%). Storing the coefficients as 1-D depth profiles
+  broadcast along each face (V6 — CPML coefficients are functions of PML
+  depth only: Roden & Gedney; gprMax/flaport-fdtd/Schneider ch.11 store 1-D
+  vectors; B-CALM is the prior art for keeping the recursive accumulators
+  only in the PML regions) wins at EVERY geometry tested: 3.08x @ 256^3
+  npml16, 2.00x @ 256^3 npml25, 2.09x @ 200^3 npml25, 2.57x @ 200^3 npml16
+  (V4 = 1.79-1.94x on the same grids). All bitwise-identical to the
+  verbatim kernel. Adopted: V6. The state memory drops from 30 full-volume
+  scalar fields (12 psi + 18 alpha/kappa/sigma) to slab psi + 1-D
+  coefficient vectors — the capacity win is unconditional.
 
 Everything else mirrors the upstream forward path EXACTLY in math and op
 order — the acceptance gate (tests/test_fdtdx_perf.py) asserts bitwise
@@ -28,9 +56,14 @@ phasor against vanilla fdtdx.run_fdtd. Do not "improve" any expression here
 without re-running that gate.
 
 Measured end-to-end (niu36, Quadro RTX 6000, scripts/14_bench_fdtdx_fast.py,
-8.0M cells x 500 steps, default XLA flags): vanilla 638 Mcell-steps/s hot,
-fast 1140 Mcell-steps/s hot -> 1.79x, with max|dE| = max|dH| = 0.0 and all
-pvgc PhasorDetector phasors exactly equal on GPU.
+8.0M cells x 500 steps, default XLA flags, per-engine processes):
+  vanilla          640 Mcell-steps/s hot   peak 6.02 GiB
+  fast (V5)       1245 Mcell-steps/s hot   peak 3.07 GiB   -> 1.94x
+  fast+reclaim    1163 Mcell-steps/s hot   peak 2.09 GiB   -> 1.82x
+with max|dE| = max|dH| = 0.0 and all pvgc PhasorDetector phasors exactly
+equal on GPU (both scripts/14 and the real pvgc._run dispatch path).
+(The earlier V4 component-tuple loop measured 1140 Mcell-steps/s = 1.79x on
+the same case; the slab restriction added the rest plus the memory drop.)
 
 GRADIENTS ARE OUT OF SCOPE. This is a forward-only drop-in: no reversible /
 checkpointed machinery, no custom VJP, no boundary recording. Anything that
@@ -61,7 +94,7 @@ import jax.numpy as jnp
 from fdtdx.config import SimulationConfig
 from fdtdx.constants import c as c0
 from fdtdx.constants import eps0
-from fdtdx.fdtd.container import ArrayContainer, ObjectContainer, SimulationState
+from fdtdx.fdtd.container import ArrayContainer, FieldState, ObjectContainer, SimulationState
 from fdtdx.fdtd.update import get_wrap_padding_axes
 from fdtdx.objects.boundaries.bloch import BlochBoundary
 from fdtdx.objects.boundaries.perfectly_matched_layer import PerfectlyMatchedLayer
@@ -119,19 +152,127 @@ def _validate_supported(
 
 
 def _pml_coefficients(config, alpha, kappa, sigma):
-    """Loop-invariant PML coefficients, hoisted out of the time loop.
+    """Loop-invariant PML coefficients from alpha/kappa/sigma slices.
 
     Verbatim expressions from curl_E/curl_H (they are identical on the E and
-    H sides — same alpha/kappa/sigma, same formula), split into per-component
-    3D constants. Microbenchmark-verified bitwise-neutral hoist (V3/V4).
+    H sides — same formula on different coefficient rows). Works on arrays
+    of any shape (full rows or slab slices). Microbenchmark-verified
+    bitwise-neutral hoist (V3/V4/V5).
     """
     b = jnp.expm1(-config.courant_number * config.resolution / c0 / eps0 * (sigma / kappa + alpha)) + 1
     a = jnp.nan_to_num((b - 1.0) * sigma / (sigma + alpha * kappa) / kappa, nan=0.0, posinf=0.0, neginf=0.0)
     kappa_inv = 1.0 / kappa
-    b6 = tuple(b[i] for i in range(6))
-    a6 = tuple(a[i] for i in range(6))
-    ki3 = tuple(kappa_inv[i] for i in range(3))
-    return b6, a6, ki3
+    return b, a, kappa_inv
+
+
+# psi component ordering as unpacked in curl_E/curl_H: (xy, xz, yz, yx, zx, zy)
+# — the second letter is the derivative axis each component convolves.
+_PSI_DERIV_AXES = (1, 2, 2, 0, 0, 1)
+
+
+def _collect_pml_slabs(objects: ObjectContainer) -> dict[int, list[tuple[slice, slice, slice]]]:
+    """Static slab regions (grid_slice) of the placed PML objects, per axis.
+
+    The PML profiles (and therefore all nonzero psi/b/a and kappa != 1) live
+    exactly inside these regions — coefficient row d (and d+3) is modified
+    only by PMLs with axis == d (PerfectlyMatchedLayer.modify_arrays).
+    """
+    slabs: dict[int, list[tuple[slice, slice, slice]]] = {0: [], 1: [], 2: []}
+    for pml in objects.pml_objects:
+        slabs[pml.axis].append(pml.grid_slice)
+    for axis, slab_list in slabs.items():
+        spans = sorted((s[axis].start, s[axis].stop) for s in slab_list)
+        for (lo1, hi1), (lo2, hi2) in zip(spans, spans[1:]):
+            if hi1 > lo2:
+                raise NotImplementedError(
+                    f"run_fdtd_fast: overlapping PML slabs on axis {axis} "
+                    f"({spans}) — slab-restricted psi state would double-count."
+                )
+    return slabs
+
+
+def _slab_coefficients(config, alpha, kappa, sigma, slabs):
+    """Slab loop-invariant PML coefficients as 1-D depth profiles.
+
+    Returns per-axis lists of (bE, aE, bH, aH, ki) arrays of broadcastable
+    shape (npml along the face normal, 1 transversally): bE/aE from
+    coefficient row d (used by the psi_E updates in curl_H), bH/aH from row
+    d+3 (psi_H updates in curl_E), ki = 1/kappa from row d (upstream uses
+    kappa rows 0..2 in BOTH curls).
+
+    CPML coefficients are functions of PML depth only (Roden & Gedney;
+    gprMax, flaport/fdtd and Schneider ch.11 all store 1-D vectors), and
+    fdtdx's modify_arrays builds each face's alpha/kappa/sigma by
+    broadcasting a 1-D polynomial profile — verified exactly on placed
+    arrays, and guarded here: a transversely varying profile (custom PML
+    subclass) raises instead of being silently averaged. Microbenchmark V6:
+    the 1-D form beats 3-D slab coefficients at every geometry tested and
+    stays bitwise-identical.
+
+    Computed under jit — NOT eagerly — so XLA's algebraic simplifier applies
+    the same value-changing rewrites (e.g. x/y/z -> x/(y*z) in the `a`
+    coefficient) as it does to the identical expressions inside vanilla's
+    compiled loop body. config stays closed-over (static) so the scalar
+    prefactor constant-folds exactly like upstream.
+    """
+    profiles = {}
+    for d, slab_list in slabs.items():
+        rows = []
+        for sl in slab_list:
+            idx_1d = tuple(slice(None) if i == d else slice(0, 1) for i in range(3))
+            per_row = []
+            for row in (d, d + 3):
+                triple = []
+                for name, arr in (("alpha", alpha), ("kappa", kappa), ("sigma", sigma)):
+                    block = arr[row][sl]
+                    prof = block[idx_1d]
+                    if not bool(jnp.all(block == prof)):
+                        raise NotImplementedError(
+                            f"run_fdtd_fast: {name} row {row} varies transversely "
+                            f"inside the axis-{d} PML slab {sl} — the 1-D depth-"
+                            f"profile coefficient layout does not apply."
+                        )
+                    triple.append(prof)
+                per_row.append(tuple(triple))
+            rows.append(tuple(per_row))
+        profiles[d] = rows
+
+    def compute(prof_tree):
+        out = {}
+        for d, slab_rows in prof_tree.items():
+            rows = []
+            for (alE, kaE, siE), (alH, kaH, siH) in slab_rows:
+                bE, aE, _ = _pml_coefficients(config, alE, kaE, siE)
+                bH, aH, _ = _pml_coefficients(config, alH, kaH, siH)
+                ki = 1.0 / kaE
+                rows.append((bE, aE, bH, aH, ki))
+            out[d] = rows
+        return out
+
+    return jax.jit(compute)(profiles)
+
+
+def _slab_factor(diff, slab_list, psi_list, coeff_list, side):
+    """One factorized curl term: T = diff outside the slabs of this axis,
+    (1/kappa)*diff + psi_new inside; psi_new = b*psi + a*diff (slab-sized).
+
+    Elementwise identical to upstream's full-volume ki*diff + psi term: the
+    only outside-slab deviation is dropping the exact *1 and +0, and slab
+    corners are exact because the OTHER curl term's coefficients live on a
+    different axis's slabs (per-axis factorization).
+
+    side selects the coefficient rows: "E" for psi_E updates (curl_H, rows
+    0..2), "H" for psi_H updates (curl_E, rows 3..5).
+    """
+    new_psi = []
+    T = diff
+    for sl, psi_s, (bE, aE, bH, aH, ki) in zip(slab_list, psi_list, coeff_list):
+        b_s, a_s = (bE, aE) if side == "E" else (bH, aH)
+        d_s = diff[sl]
+        p_new = b_s * psi_s + a_s * d_s
+        T = T.at[sl].set(ki * d_s + p_new)
+        new_psi.append(p_new)
+    return T, tuple(new_psi)
 
 
 def _pad_component(x: jax.Array, periodic_axes: tuple[bool, bool, bool]) -> jax.Array:
@@ -144,8 +285,12 @@ def _pad_component(x: jax.Array, periodic_axes: tuple[bool, bool, bool]) -> jax.
     return x
 
 
-def _curl_E_components(E_pad3, psi_H6, b6, a6, ki3):
-    """curl_E with simulate_boundaries=True, component tuples in and out."""
+def _curl_E_components(E_pad3, psi_H6, slabs, coeffs):
+    """curl_E with simulate_boundaries=True: component tuples, slab psi state.
+
+    psi_H6 is a 6-tuple (xy, xz, yz, yx, zx, zy) of per-slab array tuples
+    (empty for axes without PML — those components are identically zero).
+    """
     Ex_pad, Ey_pad, Ez_pad = E_pad3
     dyEz = (jnp.roll(Ez_pad, -1, axis=1) - Ez_pad)[1:-1, 1:-1, 1:-1]
     dzEy = (jnp.roll(Ey_pad, -1, axis=2) - Ey_pad)[1:-1, 1:-1, 1:-1]
@@ -154,22 +299,22 @@ def _curl_E_components(E_pad3, psi_H6, b6, a6, ki3):
     dxEy = (jnp.roll(Ey_pad, -1, axis=0) - Ey_pad)[1:-1, 1:-1, 1:-1]
     dyEx = (jnp.roll(Ex_pad, -1, axis=1) - Ex_pad)[1:-1, 1:-1, 1:-1]
 
-    psi_Hxy, psi_Hxz, psi_Hyz, psi_Hyx, psi_Hzx, psi_Hzy = psi_H6
-    psi_Hxy = b6[4] * psi_Hxy + a6[4] * dyEz
-    psi_Hxz = b6[5] * psi_Hxz + a6[5] * dzEy
-    psi_Hyz = b6[5] * psi_Hyz + a6[5] * dzEx
-    psi_Hyx = b6[3] * psi_Hyx + a6[3] * dxEz
-    psi_Hzx = b6[3] * psi_Hzx + a6[3] * dxEy
-    psi_Hzy = b6[4] * psi_Hzy + a6[4] * dyEx
+    p_xy, p_xz, p_yz, p_yx, p_zx, p_zy = psi_H6
+    T1x, p_xy = _slab_factor(dyEz, slabs[1], p_xy, coeffs[1], "H")
+    T2x, p_xz = _slab_factor(dzEy, slabs[2], p_xz, coeffs[2], "H")
+    T1y, p_yz = _slab_factor(dzEx, slabs[2], p_yz, coeffs[2], "H")
+    T2y, p_yx = _slab_factor(dxEz, slabs[0], p_yx, coeffs[0], "H")
+    T1z, p_zx = _slab_factor(dxEy, slabs[0], p_zx, coeffs[0], "H")
+    T2z, p_zy = _slab_factor(dyEx, slabs[1], p_zy, coeffs[1], "H")
 
-    curl_x = (ki3[1] * dyEz + psi_Hxy) - (ki3[2] * dzEy + psi_Hxz)
-    curl_y = (ki3[2] * dzEx + psi_Hyz) - (ki3[0] * dxEz + psi_Hyx)
-    curl_z = (ki3[0] * dxEy + psi_Hzx) - (ki3[1] * dyEx + psi_Hzy)
-    return (curl_x, curl_y, curl_z), (psi_Hxy, psi_Hxz, psi_Hyz, psi_Hyx, psi_Hzx, psi_Hzy)
+    curl_x = T1x - T2x
+    curl_y = T1y - T2y
+    curl_z = T1z - T2z
+    return (curl_x, curl_y, curl_z), (p_xy, p_xz, p_yz, p_yx, p_zx, p_zy)
 
 
-def _curl_H_components(H_pad3, psi_E6, b6, a6, ki3):
-    """curl_H with simulate_boundaries=True, component tuples in and out."""
+def _curl_H_components(H_pad3, psi_E6, slabs, coeffs):
+    """curl_H with simulate_boundaries=True: component tuples, slab psi state."""
     Hx_pad, Hy_pad, Hz_pad = H_pad3
     dyHz = (Hz_pad - jnp.roll(Hz_pad, 1, axis=1))[1:-1, 1:-1, 1:-1]
     dzHy = (Hy_pad - jnp.roll(Hy_pad, 1, axis=2))[1:-1, 1:-1, 1:-1]
@@ -178,18 +323,18 @@ def _curl_H_components(H_pad3, psi_E6, b6, a6, ki3):
     dxHy = (Hy_pad - jnp.roll(Hy_pad, 1, axis=0))[1:-1, 1:-1, 1:-1]
     dyHx = (Hx_pad - jnp.roll(Hx_pad, 1, axis=1))[1:-1, 1:-1, 1:-1]
 
-    psi_Exy, psi_Exz, psi_Eyz, psi_Eyx, psi_Ezx, psi_Ezy = psi_E6
-    psi_Exy = b6[1] * psi_Exy + a6[1] * dyHz
-    psi_Exz = b6[2] * psi_Exz + a6[2] * dzHy
-    psi_Eyz = b6[2] * psi_Eyz + a6[2] * dzHx
-    psi_Eyx = b6[0] * psi_Eyx + a6[0] * dxHz
-    psi_Ezx = b6[0] * psi_Ezx + a6[0] * dxHy
-    psi_Ezy = b6[1] * psi_Ezy + a6[1] * dyHx
+    p_xy, p_xz, p_yz, p_yx, p_zx, p_zy = psi_E6
+    T1x, p_xy = _slab_factor(dyHz, slabs[1], p_xy, coeffs[1], "E")
+    T2x, p_xz = _slab_factor(dzHy, slabs[2], p_xz, coeffs[2], "E")
+    T1y, p_yz = _slab_factor(dzHx, slabs[2], p_yz, coeffs[2], "E")
+    T2y, p_yx = _slab_factor(dxHz, slabs[0], p_yx, coeffs[0], "E")
+    T1z, p_zx = _slab_factor(dxHy, slabs[0], p_zx, coeffs[0], "E")
+    T2z, p_zy = _slab_factor(dyHx, slabs[1], p_zy, coeffs[1], "E")
 
-    curl_x = (ki3[1] * dyHz + psi_Exy) - (ki3[2] * dzHy + psi_Exz)
-    curl_y = (ki3[2] * dzHx + psi_Eyz) - (ki3[0] * dxHz + psi_Eyx)
-    curl_z = (ki3[0] * dxHy + psi_Ezx) - (ki3[1] * dyHx + psi_Ezy)
-    return (curl_x, curl_y, curl_z), (psi_Exy, psi_Exz, psi_Eyz, psi_Eyx, psi_Ezx, psi_Ezy)
+    curl_x = T1x - T2x
+    curl_y = T1y - T2y
+    curl_z = T1z - T2z
+    return (curl_x, curl_y, curl_z), (p_xy, p_xz, p_yz, p_yx, p_zx, p_zy)
 
 
 def _interpolate_components(E_pad3, H_pad3):
@@ -314,19 +459,57 @@ def _source_update_H(source, H3, inv_permeabilities, time_step):
 # ---------------------------------------------------------------------------
 
 
+def _scatter_psi(psi6, slabs, vol_shape, dtype):
+    """Slab psi state -> full (6, *vol_shape) array (exact zeros outside)."""
+    full = jnp.zeros((6, *vol_shape), dtype=dtype)
+    for i, dax in enumerate(_PSI_DERIV_AXES):
+        for sl, p in zip(slabs[dax], psi6[i]):
+            full = full.at[(i, *sl)].set(p)
+    return full
+
+
+def _rebuild_pml_arrays(arrays_shape, dtype, objects):
+    """Recompute alpha/kappa/sigma exactly as fdtdx initialization does.
+
+    Used by reclaim_memory=True to restore the drop-in return contract after
+    the full-volume originals were freed: base values (0 / 1 / 0) plus each
+    boundary's modify_arrays profile — deterministic, so the rebuilt arrays
+    equal the originals bit-for-bit (asserted in tests/test_fdtdx_perf.py).
+    """
+    alpha = jnp.zeros((6, *arrays_shape), dtype=dtype)
+    kappa = jnp.ones((6, *arrays_shape), dtype=dtype)
+    sigma = jnp.zeros((6, *arrays_shape), dtype=dtype)
+    for boundary in objects.boundary_objects:
+        modify_fn = getattr(boundary, "modify_arrays", None)
+        if callable(modify_fn):
+            result = modify_fn(
+                alpha=alpha,
+                kappa=kappa,
+                sigma=sigma,
+                electric_conductivity=None,
+                magnetic_conductivity=None,
+            )
+            if result is not None:
+                alpha = result.get("alpha", alpha)
+                kappa = result.get("kappa", kappa)
+                sigma = result.get("sigma", sigma)
+    return alpha, kappa, sigma
+
+
 def run_fdtd_fast(
     arrays: ArrayContainer,
     objects: ObjectContainer,
     config: SimulationConfig,
     key: jax.Array,
+    reclaim_memory: bool = False,
 ) -> SimulationState:
     """Forward-only drop-in for fdtdx.run_fdtd on the pvgc scene subset.
 
     Bitwise-identical to ``fdtdx.run_fdtd(arrays, objects, config, key)`` for
     supported scenes (see module docstring; asserted by tests/test_fdtdx_perf.py),
-    but with the component-tuple state layout and hoisted PML coefficients.
-    NO GRADIENT SUPPORT — the returned arrays are for detector reading and
-    field inspection only.
+    but with the component-tuple state layout, hoisted PML coefficients and
+    slab-restricted CPML state. NO GRADIENT SUPPORT — the returned arrays are
+    for detector reading and field inspection only.
 
     Args:
         arrays: Initial simulation state (as returned by apply_params).
@@ -334,6 +517,16 @@ def run_fdtd_fast(
         config: Simulation configuration (gradient_config must be None).
         key: Accepted for signature compatibility; the forward path of the
             supported subset never consumes randomness.
+        reclaim_memory: When True, FREES the caller's full-volume device
+            buffers (fields.E/H, psi_E/psi_H, alpha/kappa/sigma) after the
+            slab coefficients are extracted, so the time loop runs without
+            30+ full-volume scalar fields resident — this is what unlocks
+            grids that OOM vanilla. The INPUT ``arrays`` container is
+            invalid afterwards (any use of its deleted leaves raises);
+            the RETURNED container is complete and bit-identical (psi is
+            re-scattered, alpha/kappa/sigma deterministically rebuilt).
+            Only enable when the caller discards its input container, as
+            invdx's pvgc runners do. Defaults to False.
 
     Returns:
         SimulationState: (final time step, ArrayContainer with final fields
@@ -341,8 +534,6 @@ def run_fdtd_fast(
     """
     del key  # only consumed by boundary recording, which is out of scope
     _validate_supported(arrays, objects, config)
-
-    arrays = arrays.reset()
 
     periodic_axes = get_wrap_padding_axes(objects)
     inv_eps = arrays.inv_permittivities
@@ -352,6 +543,8 @@ def run_fdtd_fast(
     forward_detectors = objects.forward_detectors
     any_exact = any(d.exact_interpolation for d in forward_detectors)
     any_raw = any(not d.exact_interpolation for d in forward_detectors)
+    vol_shape = arrays.fields.E.shape[1:]
+    dtype = arrays.fields.E.dtype
 
     # per-component broadcast of the material arrays: leading dim 1 broadcasts
     # over components exactly like the upstream (3,N)*(1,N) elementwise op
@@ -363,16 +556,23 @@ def run_fdtd_fast(
     inv_eps3 = tuple(_mat(inv_eps, i) for i in range(3))
     inv_mu3 = tuple(_mat(inv_mu, i) for i in range(3))
 
-    # Loop-invariant PML coefficients (identical on E and H side). Computed
-    # under jit — NOT eagerly — so XLA's algebraic simplifier applies the
-    # same value-changing rewrites (e.g. x/y/z -> x/(y*z) in the `a`
-    # coefficient) as it does to the identical expressions inside vanilla's
-    # compiled loop body; eager op-by-op execution would round differently
-    # and break the bitwise equivalence gate. config stays closed-over
-    # (static) so the scalar prefactor constant-folds exactly like upstream.
-    b6, a6, ki3 = jax.jit(
-        lambda alpha, kappa, sigma: _pml_coefficients(config, alpha, kappa, sigma)
-    )(arrays.alpha, arrays.kappa, arrays.sigma)
+    # Slab-restricted loop-invariant PML coefficients (see _slab_coefficients
+    # for the jit-not-eager bitwise rationale).
+    slabs = _collect_pml_slabs(objects)
+    coeffs = _slab_coefficients(config, arrays.alpha, arrays.kappa, arrays.sigma, slabs)
+
+    if reclaim_memory:
+        jax.block_until_ready(coeffs)
+        for buf in (
+            arrays.fields.E,
+            arrays.fields.H,
+            arrays.fields.psi_E,
+            arrays.fields.psi_H,
+            arrays.alpha,
+            arrays.kappa,
+            arrays.sigma,
+        ):
+            buf.delete()
 
     def _pad3(comps):
         return tuple(_pad_component(x, periodic_axes) for x in comps)
@@ -389,7 +589,7 @@ def run_fdtd_fast(
         # (no broadcast), so that rewrite does not fire — write the
         # simplified grouping explicitly or dielectric cells differ by 1 ulp.
         H_pad3 = _pad3(H3)
-        curl3, psi_E6 = _curl_H_components(H_pad3, psi_E6, b6, a6, ki3)
+        curl3, psi_E6 = _curl_H_components(H_pad3, psi_E6, slabs, coeffs)
         E3 = tuple(E3[i] + curl3[i] * (inv_eps3[i] * c) for i in range(3))
 
         for source in sources:
@@ -405,7 +605,7 @@ def run_fdtd_fast(
         # scalar (non-magnetic, 1.0) case the mirror `c * curl * inv_mu` is
         # exact either way and upstream's mul-by-1 is simplified away.
         E_pad3 = _pad3(E3)
-        curlE3, psi_H6 = _curl_E_components(E_pad3, psi_H6, b6, a6, ki3)
+        curlE3, psi_H6 = _curl_E_components(E_pad3, psi_H6, slabs, coeffs)
         if isinstance(inv_mu, jax.Array) and inv_mu.ndim > 0:
             H3 = tuple(H3[i] - curlE3[i] * (inv_mu3[i] * c) for i in range(3))
         else:
@@ -456,21 +656,59 @@ def run_fdtd_fast(
 
         return E3, H3, psi_E6, psi_H6, det_states
 
+    # Initial state, mirroring arrays.reset(): zero fields, zero slab psi,
+    # zeroed detector states. Building zeros directly (instead of reset())
+    # avoids allocating full-volume (6,N) psi zeros that the slab layout
+    # never uses.
+    def _psi_init():
+        return tuple(
+            tuple(
+                jnp.zeros(tuple(s.stop - s.start for s in sl), dtype=dtype)
+                for sl in slabs[dax]
+            )
+            for dax in _PSI_DERIV_AXES
+        )
+
     init = (
-        tuple(arrays.fields.E[i] for i in range(3)),
-        tuple(arrays.fields.H[i] for i in range(3)),
-        tuple(arrays.fields.psi_E[i] for i in range(6)),
-        tuple(arrays.fields.psi_H[i] for i in range(6)),
-        arrays.detector_states,
+        tuple(jnp.zeros(vol_shape, dtype=dtype) for _ in range(3)),
+        tuple(jnp.zeros(vol_shape, dtype=dtype) for _ in range(3)),
+        _psi_init(),
+        _psi_init(),
+        {k: {k2: v2 * 0 for k2, v2 in v.items()} for k, v in arrays.detector_states.items()},
     )
     total_steps = config.time_steps_total
     E3, H3, psi_E6, psi_H6, det_states = jax.lax.fori_loop(0, total_steps, body, init)
 
-    # repack into a normal ArrayContainer so downstream detector-reading code
-    # (and field inspection) sees the standard layout
-    arrays = arrays.aset("fields->E", jnp.stack(E3, axis=0))
-    arrays = arrays.aset("fields->H", jnp.stack(H3, axis=0))
-    arrays = arrays.aset("fields->psi_E", jnp.stack(psi_E6, axis=0))
-    arrays = arrays.aset("fields->psi_H", jnp.stack(psi_H6, axis=0))
-    arrays = arrays.aset("detector_states", det_states)
-    return jnp.asarray(total_steps, dtype=jnp.int32), arrays
+    # Repack into a normal ArrayContainer so downstream detector-reading code
+    # (and field inspection) sees the standard layout. Constructed directly —
+    # not via aset — because in reclaim mode the input container holds
+    # deleted leaves that aset's tree machinery would touch.
+    if reclaim_memory:
+        alpha, kappa, sigma = _rebuild_pml_arrays(vol_shape, dtype, objects)
+    else:
+        alpha, kappa, sigma = arrays.alpha, arrays.kappa, arrays.sigma
+    out = ArrayContainer(
+        fields=FieldState(
+            E=jnp.stack(E3, axis=0),
+            H=jnp.stack(H3, axis=0),
+            psi_E=_scatter_psi(psi_E6, slabs, vol_shape, dtype),
+            psi_H=_scatter_psi(psi_H6, slabs, vol_shape, dtype),
+        ),
+        alpha=alpha,
+        kappa=kappa,
+        sigma=sigma,
+        inv_permittivities=inv_eps,
+        inv_permeabilities=inv_mu,
+        detector_states=det_states,
+        recording_state=arrays.recording_state,
+        # everything below is validated to be None/absent for the supported subset
+        electric_conductivity=arrays.electric_conductivity,
+        magnetic_conductivity=arrays.magnetic_conductivity,
+        dispersive_P_curr=arrays.dispersive_P_curr,
+        dispersive_P_prev=arrays.dispersive_P_prev,
+        dispersive_c1=arrays.dispersive_c1,
+        dispersive_c2=arrays.dispersive_c2,
+        dispersive_c3=arrays.dispersive_c3,
+        dispersive_inv_c2=arrays.dispersive_inv_c2,
+    )
+    return jnp.asarray(total_steps, dtype=jnp.int32), out
