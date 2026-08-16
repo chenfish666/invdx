@@ -11,6 +11,11 @@ outputs/
 spack/env/.spack-env/
 env.sh
 
+# spack build-run artifacts: machine-specific paths, not reproducible inputs
+# (spack.yaml/spack.lock are the reproducible inputs and ARE committed)
+spack/env/concretize.txt
+spack/env/install.log
+
 # 使用者個人資料,不進 repo
 diagrams/
 papers_lab/
