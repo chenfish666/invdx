@@ -421,17 +421,27 @@ def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
 
 
 def _fdtd_forward(arrays, objects, sim_config, key):
-    """Forward FDTD dispatch: the vendored fast loop (bitwise-gated, 1.79x)
+    """Forward FDTD dispatch: the vendored fast loop (bitwise-gated, ~2x)
     unless INVDX_FAST=0 or the scene is outside its supported subset, in
-    which case fall back to vanilla fdtdx.run_fdtd with a notice."""
+    which case fall back to vanilla fdtdx.run_fdtd with a notice.
+
+    Memory reclaim is on by default (INVDX_FAST_RECLAIM=0 to disable): the
+    fast loop frees the caller's full-volume psi/alpha/kappa/sigma/field
+    buffers during the time loop, roughly tripling the grid size that fits
+    on a GPU. Safe here because every pvgc runner immediately rebinds its
+    `arrays` name to the returned container and never touches the input
+    container again — keep it that way when adding runners, or the freed
+    input arrays will raise on use."""
     import os
 
     if os.environ.get("INVDX_FAST", "1") != "0":
         try:
             from ..engines.fdtdx_perf import run_fdtd_fast
 
+            reclaim = os.environ.get("INVDX_FAST_RECLAIM", "1") != "0"
             return run_fdtd_fast(arrays=arrays, objects=objects,
-                                 config=sim_config, key=key)
+                                 config=sim_config, key=key,
+                                 reclaim_memory=reclaim)
         except NotImplementedError as e:
             print(f"[fdtdx_perf] vanilla fallback: {e}")
     import fdtdx as _f
