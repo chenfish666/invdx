@@ -1,7 +1,7 @@
-# Convenience targets. The invdx conda env owns fdtdx/JAX; the meep env is
-# only ever reached through the subprocess bridge (engines/meep_bridge.py).
-PY  ?= python   # or: /path/to/envs/invdx/bin/python
-GPU ?= 0                        # CUDA_VISIBLE_DEVICES for GPU-using targets
+# Convenience targets. uv owns fdtdx/JAX (see README Environment); the meep
+# env is only ever reached through the subprocess bridge (engines/meep_bridge.py).
+PY  ?= uv run python
+GPU ?= $(if $(INVDX_GPU),$(INVDX_GPU),0)  # CUDA_VISIBLE_DEVICES for GPU-using targets
 
 check:            ## gate G0 only: pure-python unit tests (seconds)
 	$(PY) scripts/00_check.py --only unit

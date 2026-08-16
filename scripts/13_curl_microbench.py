@@ -3,8 +3,9 @@
 Isolates one representative H-half-step of the fdtdx FDTD inner loop:
     curl, psi = curl_E(E_pad, psi, alpha, kappa, sigma)  # simulate_boundaries=True
     H = H + C * curl
-V0 is a verbatim port of the installed
-~/miniforge3/envs/invdx/lib/python3.12/site-packages/fdtdx/core/physics/curl.py
+V0 is a verbatim port of the installed fdtdx==0.6.2 curl.py
+(fdtdx/core/physics/curl.py — find it with
+`uv run python -c "import fdtdx, os; print(os.path.dirname(fdtdx.__file__))"`)
 
 Variants:
   V0: verbatim (per-step b/a, jnp.stack for psi_updated and curl)
@@ -14,7 +15,7 @@ Variants:
   V4: V3 + component-tuple state: psi as tuple of six 3D arrays, H as tuple of 3
       (no (6,N)/(3,N) stacked state arrays at all)
 
-Run: CUDA_VISIBLE_DEVICES=<idle gpu> ~/miniforge3/envs/invdx/bin/python /tmp/curl_bench.py
+Run: CUDA_VISIBLE_DEVICES=<idle gpu> uv run python /tmp/curl_bench.py
 """
 
 import time

@@ -14,13 +14,18 @@ optimization may be occupying the CPU cores.
 
 import json
 import os
+import pathlib
 import subprocess
 import tempfile
 
 import numpy as np
 
-MEEP_ENV = os.environ.get("INVDX_MEEP_ENV",
-                          "/root/miniforge3/envs/meep")
+# Repo root, derived from this file's location (engines/ -> invdx/ -> src/ -> repo):
+# never a hardcoded home directory, so this works from any checkout/machine.
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
+_DEFAULT_MEEP_ENV = _REPO_ROOT / "spack" / "env" / ".spack-env" / "view"
+
+MEEP_ENV = os.environ.get("INVDX_MEEP_ENV", str(_DEFAULT_MEEP_ENV))
 MEEP_PYTHON = os.path.join(MEEP_ENV, "bin", "python")
 MPIRUN = os.path.join(MEEP_ENV, "bin", "mpirun")
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meep_worker.py")
@@ -36,6 +41,12 @@ def run_job(task, payload, arrays=None, n_ranks=2, timeout=600, jobdir=None,
     mpi_args — extra mpirun arguments (e.g. ["--bind-to", "core"]) for
     placement/pinning experiments; default none.
     """
+    if not os.path.exists(MEEP_PYTHON):
+        raise RuntimeError(
+            f"No Meep environment found at {MEEP_ENV!r} (bin/python missing — "
+            "spack env not built yet, or wrong path). Set INVDX_MEEP_ENV to a "
+            "directory with bin/python + bin/mpirun, e.g. an existing conda "
+            "env with pymeep.")
     if jobdir is None:
         jobdir = tempfile.mkdtemp(prefix="meepjob-")
     os.makedirs(jobdir, exist_ok=True)

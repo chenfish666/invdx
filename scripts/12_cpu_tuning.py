@@ -7,9 +7,9 @@ ranks only add scheduling tax, and on multi-socket/chiplet CPUs unpinned
 ranks migrate across NUMA domains. This sweep replaces folklore with a
 measured table for THIS machine.
 
-  python scripts/12_cpu_tuning.py --ranks 8 16 32 --tag cpu-local
-  # on niu36 (dual-socket Xeon):
-  #   INVDX_MEEP_ENV=$HOME/miniforge3/envs/meep python scripts/12_cpu_tuning.py \
+  uv run python scripts/12_cpu_tuning.py --ranks 8 16 32 --tag cpu-local
+  # on niu36 (dual-socket Xeon), with INVDX_MEEP_ENV pointing at your meep env:
+  #   INVDX_MEEP_ENV=<path-to-meep-env> uv run python scripts/12_cpu_tuning.py \
   #       --ranks 16 32 64 --tag cpu-niu36
 """
 

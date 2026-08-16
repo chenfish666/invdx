@@ -5,6 +5,12 @@ runs/
 outputs/
 .pytest_cache/
 
+# uv-managed venv / L2 build trees (not repo state, see env.sh.example)
+.venv/
+.pixi/
+spack/env/.spack-env/
+env.sh
+
 # 使用者個人資料,不進 repo
 diagrams/
 papers_lab/

@@ -33,17 +33,25 @@ cross-validation engine behind one config-driven, validation-gated workflow.
 ## Environment
 
 ```bash
-mamba create -y -n invdx python=3.12 pip
-mamba run -n invdx pip install "jax[cuda12]" "fdtdx==0.6.2" \
-    optax autograd scipy matplotlib gdstk pytest
-mamba run -n invdx pip install -e .
+uv sync --extra gpu --extra dev
 ```
 
-Point the Meep bridge at your Meep env with `INVDX_MEEP_ENV`
-(default: `/root/miniforge3/envs/meep`).
+`uv` owns the Python/GPU layer end to end: `.python-version` pins CPython
+3.12, `pyproject.toml` pins the GPU stack (`jax[cuda12]==0.11.0`,
+`fdtdx==0.6.2`), and `uv.lock` pins every transitive dependency (including
+the `nvidia-*-cu12` wheels CUDA ships as). `uv run <cmd>` runs inside that
+locked environment with no `activate` step; the Makefile's `PY` defaults to
+`uv run python`.
 
-The Meep side lives in the pre-existing conda env `meep` (MPI pymeep) and is
-never imported into this env; `engines/meep_bridge.py` spawns
+Point the Meep bridge at your Meep env with `INVDX_MEEP_ENV` (a spack-built
+env is in progress, see `spack/`; until it lands, point this at an existing
+Meep install, e.g. `export INVDX_MEEP_ENV=$HOME/miniforge3/envs/meep`).
+Copy `env.sh.example` to `env.sh` (git-ignored) and edit it, or export the
+variable directly.
+
+The Meep side is a separate environment (pymeep isn't pip-installable; it
+ships via conda-forge/spack only) and is never imported into this one;
+`engines/meep_bridge.py` spawns
 `mpirun -np N <meep-env-python> engines/meep_worker.py <jobdir>` and exchanges
 `.npy`/`.json` files. The worker imports only numpy-pure invdx modules.
 
