@@ -1,0 +1,35 @@
+# Fallback for the L2 (meep/MPI) layer — NOT installed or active by default.
+# Primary path is spack (see spack/env/ + docs/env.md); this file exists so a
+# pinned alternative is one command away if spack gets stuck. No pixi.lock is
+# committed: without an install there is nothing to lock, and the mode of use
+# is "pixi install" from this pinned manifest, not resuming a frozen lock.
+#
+# Switch trigger conditions (recorded in docs/env.md, condensed here):
+#   - manual spack troubleshooting exceeds ~4h with no acceptance progress
+#   - a single spack package is stuck >90min with no progress
+#   - total spack L2 effort exceeds ~8h without a working env
+#   - meep+numpy concretization has no solution even after pinning numpy down
+# To switch: `pixi install`, then point INVDX_MEEP_ENV at this env's prefix
+# (`pixi info` or `.pixi/envs/meep`) in env.sh instead of the spack view.
+#
+# Versions here mirror the spack env's target (meep 1.34.x on conda-forge,
+# mpich, matching numpy/scipy generation) so a swap doesn't also change the
+# cross-engine baseline.
+
+[workspace]
+name = "invdx-meep"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[feature.meep.dependencies]
+python  = "3.13.*"
+pymeep  = { version = "1.34.*", build = "mpi_mpich_*" }
+mpich   = "4.3.*"
+mpi4py  = "4.1.*"
+numpy   = "2.5.*"
+scipy   = "1.18.*"
+h5py    = { version = "3.16.*", build = "mpi_mpich_*" }
+matplotlib-base = "*"
+
+[environments]
+meep = ["meep"]
