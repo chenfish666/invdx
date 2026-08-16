@@ -85,6 +85,20 @@ gate assumes everything before it. Runner: `gates/runner.py`; machine-readable
 
 Treat gate failures as stop-the-line events.
 
+## Measured performance doctrine (2026-08, this fleet)
+
+- Meep MPI rank counts: **fewer beats more** — FDTD is memory-bandwidth
+  bound. Measured on the dev fleet: 16-core Zen4 peaks at np=8 (np=16 is
+  26-35% slower, np=32/SMT is 4x slower); dual-socket Xeon peaks at np=16
+  with NUMA binding (np=64/full SMT is 5x slower). Sweep YOUR machine with
+  `scripts/12_cpu_tuning.py` before trusting any default.
+- GPU sharing is a measured dead end for fdtdx (CUDA MPS: -58% aggregate;
+  plain time-slicing: zero gain — one sim ~80% saturates a card at 0.5M
+  cells). Batch small sims with jax.vmap inside one process instead.
+- Cross-node domain decomposition over 1GbE is disqualified by arithmetic
+  (halo exchange ~64 ms/step vs 5-15 ms/step compute); ship whole
+  independent jobs to the other node instead (~1.5 s protocol overhead).
+
 ## Hard-won guardrails (encoded in `engines/conventions.py`)
 
 1. Meep DFT fields / |alpha|² / fluxes omit the physical ½ power factor —

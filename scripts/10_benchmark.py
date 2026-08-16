@@ -92,7 +92,7 @@ def main():
     p.add_argument("--size", type=float, default=8.0)
     p.add_argument("--res", type=int, default=20)
     p.add_argument("--steps", type=int, default=500)
-    p.add_argument("--np", type=int, default=16, dest="n_ranks")
+    p.add_argument("--np", type=int, default=8, dest="n_ranks")
     p.add_argument("--gpu", default="0")
     p.add_argument("--skip-meep", action="store_true")
     p.add_argument("--skip-fdtdx", action="store_true")
