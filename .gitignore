@@ -18,3 +18,4 @@ docs-private/
 
 # Claude worktree admin
 .claude/
+core.*
