@@ -418,6 +418,28 @@ def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
 # --------------------------------------------------------------------------
 
 
+
+
+def _fdtd_forward(arrays, objects, sim_config, key):
+    """Forward FDTD dispatch: the vendored fast loop (bitwise-gated, 1.79x)
+    unless INVDX_FAST=0 or the scene is outside its supported subset, in
+    which case fall back to vanilla fdtdx.run_fdtd with a notice."""
+    import os
+
+    if os.environ.get("INVDX_FAST", "1") != "0":
+        try:
+            from ..engines.fdtdx_perf import run_fdtd_fast
+
+            return run_fdtd_fast(arrays=arrays, objects=objects,
+                                 config=sim_config, key=key)
+        except NotImplementedError as e:
+            print(f"[fdtdx_perf] vanilla fallback: {e}")
+    import fdtdx as _f
+
+    return _f.run_fdtd(arrays=arrays, objects=objects, config=sim_config,
+                       key=key)
+
+
 def _run(cfg, teeth, with_chip, seed=0, azimuth_sign=1.0, excitation="fiber",
          with_field_map=False, shallow_teeth=None):
     sim_config, objs, cons = build_scene(cfg, teeth=teeth, with_chip=with_chip,
@@ -430,8 +452,7 @@ def _run(cfg, teeth, with_chip, seed=0, azimuth_sign=1.0, excitation="fiber",
     objects, arrays, params, sim_config, _ = fdtdx.place_objects(
         object_list=objs, config=sim_config, constraints=cons, key=k1)
     arrays, objects, _ = fdtdx.apply_params(arrays, objects, params, k2)
-    _, arrays = fdtdx.run_fdtd(
-        arrays=arrays, objects=objects, config=sim_config, key=key)
+    _, arrays = _fdtd_forward(arrays, objects, sim_config, key)
     return arrays
 
 
@@ -684,8 +705,7 @@ def field_map_3d(cfg, teeth, wg_width_um=10.0, seed=0):
     objects, arrays, params, sim_config, _ = fdtdx.place_objects(
         object_list=objs, config=sim_config, constraints=cons, key=k1)
     arrays, objects, _ = fdtdx.apply_params(arrays, objects, params, k2)
-    _, arrays = fdtdx.run_fdtd(
-        arrays=arrays, objects=objects, config=sim_config, key=key)
+    _, arrays = _fdtd_forward(arrays, objects, sim_config, key)
 
     xz = np.squeeze(np.asarray(
         arrays.detector_states["field_xz"]["phasor"])[0, 0, 0])
@@ -841,8 +861,7 @@ def _run_3d(cfg, teeth, wg_width_um, seed, with_chip):
     objects, arrays, params, sim_config, _ = fdtdx.place_objects(
         object_list=objs, config=sim_config, constraints=cons, key=k1)
     arrays, objects, _ = fdtdx.apply_params(arrays, objects, params, k2)
-    _, arrays = fdtdx.run_fdtd(
-        arrays=arrays, objects=objects, config=sim_config, key=key)
+    _, arrays = _fdtd_forward(arrays, objects, sim_config, key)
     return arrays
 
 
