@@ -25,7 +25,9 @@ import numpy as np
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _DEFAULT_MEEP_ENV = _REPO_ROOT / "spack" / "env" / ".spack-env" / "view"
 
-MEEP_ENV = os.environ.get("INVDX_MEEP_ENV", str(_DEFAULT_MEEP_ENV))
+# `or` (not a get() default) so an *empty* INVDX_MEEP_ENV also falls back —
+# "VAR= cmd" shell prefixes set the variable to "" rather than unsetting it.
+MEEP_ENV = os.environ.get("INVDX_MEEP_ENV") or str(_DEFAULT_MEEP_ENV)
 MEEP_PYTHON = os.path.join(MEEP_ENV, "bin", "python")
 MPIRUN = os.path.join(MEEP_ENV, "bin", "mpirun")
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meep_worker.py")
