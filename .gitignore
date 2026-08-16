@@ -33,3 +33,6 @@ docs-private/
 # Claude worktree admin
 .claude/
 core.*
+
+# Slurm per-job logs (run data lives in runs/)
+slurm-*.out

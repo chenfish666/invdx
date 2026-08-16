@@ -63,6 +63,27 @@ retractions go to `RETRACTIONS.md` instead of editing history here.
 - Iteration timings measured under CPU/GPU contention are recorded but not
   quotable as performance figures (measurement discipline).
 
+## 2026-08-17 (night) — 3b: Slurm launch; θ=10 stopped by its own safety gate
+
+- Slurm path validated on the local cluster: gres assigns `CUDA_VISIBLE_DEVICES`
+  0/1 correctly to concurrent jobs (no cgroup device isolation, sufficient for
+  this workload); sbatch smoke (job 150) and a scancel-mid-run requeue drill
+  (jobs 151/152) both passed — history.csv iterations 0,1,2,3 continuous
+  across the kill/resume boundary. Ledger: `experiments/` two-table records
+  (commit `e16de81`).
+- Formal θ=10 round (job 153) was stopped by the pre-run gradcheck: voxel 213
+  rel err 6.29% vs 5% tolerance, deterministic under the fixed seed. The
+  exploratory θ=0 round (job 154) passed gradcheck (1.93%) and runs overnight.
+- Root cause (GPU-probed, fresh context): **FD truncation, not an adjoint
+  defect** — residual scales as h³ (×0.126 per h-halving), Richardson
+  extrapolation from the same runs agrees with the adjoint to 0.0106%, the
+  float32 noise floor is 200× below the observed residual, and failing voxels
+  are not low-signal. Longer runs (0.8 ps vs 0.15 ps) inflate FOM curvature
+  in design space, which is why smoke-scale checks passed. The earlier
+  "float32 cancellation" attribution for this failure mode is retracted —
+  see `RETRACTIONS.md`. Fix: two-h Richardson gradcheck + FD self-consistency
+  indicator; tolerances and signal floor unchanged.
+
 **L2 stage two: meep 1.34.0 via project-owned spack package repo** (commit `614f57b`)
 
 - `spack/spack_repo/invdx/` carries a full copy (not a subclass — spack
