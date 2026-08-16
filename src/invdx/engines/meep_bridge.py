@@ -27,11 +27,14 @@ WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meep_worker.p
 SRC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def run_job(task, payload, arrays=None, n_ranks=2, timeout=600, jobdir=None):
+def run_job(task, payload, arrays=None, n_ranks=2, timeout=600, jobdir=None,
+            mpi_args=None):
     """Execute one worker task; returns the parsed result.json dict.
 
     arrays — optional {name: ndarray} saved as <name>.npy next to job.json;
     the worker addresses them by name.
+    mpi_args — extra mpirun arguments (e.g. ["--bind-to", "core"]) for
+    placement/pinning experiments; default none.
     """
     if jobdir is None:
         jobdir = tempfile.mkdtemp(prefix="meepjob-")
@@ -43,7 +46,8 @@ def run_job(task, payload, arrays=None, n_ranks=2, timeout=600, jobdir=None):
 
     env = os.environ.copy()
     env["PYTHONPATH"] = SRC_ROOT + os.pathsep + env.get("PYTHONPATH", "")
-    cmd = [MPIRUN, "-np", str(n_ranks), MEEP_PYTHON, WORKER, jobdir]
+    cmd = ([MPIRUN, "-np", str(n_ranks)] + list(mpi_args or [])
+           + [MEEP_PYTHON, WORKER, jobdir])
     proc = subprocess.run(cmd, capture_output=True, text=True,
                           timeout=timeout, env=env)
     result_path = os.path.join(jobdir, "result.json")
