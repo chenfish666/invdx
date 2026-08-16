@@ -58,12 +58,22 @@ without re-running that gate.
 Measured end-to-end (niu36, Quadro RTX 6000, scripts/14_bench_fdtdx_fast.py,
 8.0M cells x 500 steps, default XLA flags, per-engine processes):
   vanilla          640 Mcell-steps/s hot   peak 6.02 GiB
-  fast (V5)       1245 Mcell-steps/s hot   peak 3.07 GiB   -> 1.94x
+  fast (slab V6)  1245 Mcell-steps/s hot   peak 3.07 GiB   -> 1.94x
   fast+reclaim    1163 Mcell-steps/s hot   peak 2.09 GiB   -> 1.82x
 with max|dE| = max|dH| = 0.0 and all pvgc PhasorDetector phasors exactly
 equal on GPU (both scripts/14 and the real pvgc._run dispatch path).
+At the low-slab-fraction geometry (16.8M cells, 256^3, npml16, 300 steps):
+vanilla 653 -> fast 1529 Mcell-steps/s, 2.34x, max|dE|=max|dH|=0.0.
 (The earlier V4 component-tuple loop measured 1140 Mcell-steps/s = 1.79x on
-the same case; the slab restriction added the rest plus the memory drop.)
+the 8.0M case; the slab restriction added the rest plus the memory drop.)
+
+Capacity on the 23GiB-usable Turing (steps=100 probes): vanilla runs 15.6M
+cells (peak 11.86 GiB) and OOMs in the loop at 27M; the fast loop runs 27M
+without reclaim (peak 10.16 GiB) and with reclaim_memory=True runs 44.7M
+(peak 10.69 GiB) and 64M cells (peak 15.12 GiB). Beyond that (77M) the
+ceiling is fdtdx's own SETUP (place_objects allocates the full-volume
+alpha/kappa/sigma/psi before this loop ever runs), not the time loop —
+lifting that requires touching scene initialization, out of scope here.
 
 GRADIENTS ARE OUT OF SCOPE. This is a forward-only drop-in: no reversible /
 checkpointed machinery, no custom VJP, no boundary recording. Anything that
