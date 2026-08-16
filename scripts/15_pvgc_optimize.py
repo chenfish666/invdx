@@ -145,25 +145,38 @@ def initial_density(cfg, args):
 
 
 def gradcheck(vg_fn, value_fn, p, beta, seed=0):
-    """Central finite differences on a few voxels before spending 13 GPU-hours.
+    """Richardson-extrapolated central finite differences on a few voxels
+    before spending 13 GPU-hours.
 
-    Two things this deliberately does NOT do naively:
+    Three things this deliberately does NOT do naively:
 
-    * It evaluates at clip(p, h, 1-h). A binary initial design sits exactly on
-      the box edges, where a central difference silently becomes one-sided and
+    * It evaluates at clip(p, h, 1-h), h = GRADCHECK_H (the larger of the two
+      step sizes below). A binary initial design sits exactly on the box
+      edges, where a central difference silently becomes one-sided and
       reports a spurious factor-2 error. The shifted point is a legitimate
-      place to check the chain rule, and it is the point BOTH sides use.
+      place to check the chain rule, and it is the point all four evaluations
+      below use.
     * It only samples voxels whose gradient is within a factor 1/0.05 of the
       largest. Deep inside a wide tooth the tanh projection saturates and the
       derivative is genuinely ~1e-3 of the peak; the finite difference there
       is a subtraction of two nearly equal float32 numbers, so its own noise
       floor (~1e-7 x |CE| / 2h) swamps the signal and the "relative error"
-      measures the noise, not the adjoint. Observed live: a saturated voxel
-      reported 7.7% while its neighbours agreed to 0.02-0.2%, and the two
-      derivatives differed by 1.3e-8 in absolute terms. Widening the
-      tolerance would have hidden a real failure just as effectively — the
-      honest fix is to compare only where the comparison means something, and
-      to report how many voxels were eligible.
+      measures the noise, not the adjoint. That mechanism is specific to
+      voxels BELOW the eligibility floor. For an eligible voxel, the error a
+      single h=0.05 central difference reports is dominated by truncation,
+      not float32 cancellation: diagnosed 2026-08-17 on a production-scale
+      (theta=10, sim_time=0.8e-12) run, halving h cut the discrepancy ~4x —
+      the O(h^2) signature of a central difference — and 3 of 8 eligible
+      voxels failed the 5% tolerance on this truncation error alone while the
+      Richardson extrapolate below agreed with the adjoint to 0.01%.
+    * It Richardson-extrapolates instead of trusting a single h: FD(h) and
+      FD(h/2) are both computed and combined as
+      FD_R = (4*FD(h/2) - FD(h)) / 3, which cancels the leading O(h^2) term
+      and leaves O(h^4). `rel_err` compares FD_R — not the raw FD(h) — against
+      the adjoint. `fd_consistency` = |FD(h) - FD(h/2)| / |FD_R| is reported
+      alongside it: a large fd_consistency with FD_R still matching the
+      adjoint means the single-h finite difference had not converged, not
+      that the adjoint is wrong.
     """
     import jax.numpy as jnp
 
@@ -185,19 +198,27 @@ def gradcheck(vg_fn, value_fn, p, beta, seed=0):
     checks, worst = [], 0.0
     for fi in flat_idx:
         idx = np.unravel_index(fi, base.shape)
-        vals = {}
-        for sign in (+1, -1):
-            pert = base.copy()
-            pert[idx] += sign * GRADCHECK_H
-            vals[sign] = float(value_fn(jnp.asarray(pert, dtype=jnp.float32),
-                                        beta_j))
-        fd = (vals[+1] - vals[-1]) / (2 * GRADCHECK_H)
+        fd_by_h = {}
+        for h in (GRADCHECK_H, GRADCHECK_H / 2):
+            vals = {}
+            for sign in (+1, -1):
+                pert = base.copy()
+                pert[idx] += sign * h
+                vals[sign] = float(value_fn(
+                    jnp.asarray(pert, dtype=jnp.float32), beta_j))
+            fd_by_h[h] = (vals[+1] - vals[-1]) / (2 * h)
+        fd_h, fd_h2 = fd_by_h[GRADCHECK_H], fd_by_h[GRADCHECK_H / 2]
+        fd = (4 * fd_h2 - fd_h) / 3          # Richardson extrapolation, O(h^4)
         rel = abs(fd - g[idx]) / (abs(fd) + 1e-12)
+        fd_consistency = abs(fd_h - fd_h2) / (abs(fd) + 1e-12)
         worst = max(worst, rel)
         checks.append({"idx": [int(i) for i in idx], "adjoint": float(g[idx]),
-                       "fd": float(fd), "rel_err": float(rel)})
+                       "fd": float(fd), "fd_h": float(fd_h),
+                       "fd_h2": float(fd_h2), "rel_err": float(rel),
+                       "fd_consistency": float(fd_consistency)})
         print(f"[gradcheck] voxel {idx[0]:4d}: adjoint {float(g[idx]):+.6e}  "
-              f"FD {fd:+.6e}  rel err {rel:.2%}")
+              f"FD_R {fd:+.6e}  rel err {rel:.2%}  "
+              f"fd_consistency {fd_consistency:.2%}")
     return {"f0": float(f0), "worst_rel_err": worst, "checks": checks,
             "beta": float(beta), "h": GRADCHECK_H,
             "grad_max": float(mag.max()), "n_eligible": int(eligible.size),

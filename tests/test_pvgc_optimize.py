@@ -275,3 +275,83 @@ def test_run_loop_stops_on_a_converged_final_stage(tmp_path):
     assert state.stop_reason == "converged"
     assert state.iteration < 39
     assert optimize.beta_for_iter(CFG, state.iteration, 40) == 128.0
+
+
+# --------------------------------------------------------------------------
+# Richardson extrapolation (scripts/15's gradcheck FD)
+# --------------------------------------------------------------------------
+
+
+def _load_pvgc_optimize_script():
+    """scripts/15_pvgc_optimize.py by path — its filename can't be a normal
+    `import` target (leading digit), and importing it costs nothing extra: it
+    only pulls in invdx submodules already exercised elsewhere in this file,
+    no GPU or fdtdx call happens until gradcheck() actually runs."""
+    import importlib.util
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "..", "scripts", "15_pvgc_optimize.py")
+    spec = importlib.util.spec_from_file_location("_pvgc_optimize_script", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_gradcheck_richardson_beats_single_h_on_a_cubic():
+    """A central difference on f(x) = x**3 has an EXACT, closed-form
+    truncation term: FD(h) = f'(x) + h**2 (no higher-order remainder, because
+    f is a cubic — see the derivation this pins). At x=0.1, h=GRADCHECK_H the
+    term (h**2 = 0.0025) is ~8% of f'(x) = 0.03, enough on its own to fail
+    GRADCHECK_TOL — the same shape as the 2026-08-17 production gradcheck
+    failure. Richardson extrapolation cancels that h**2 term algebraically,
+    so FD_R must recover the analytic gradient (handed back as `vg_fn`'s
+    exact `grad`, no autodiff involved) to float32 precision, while the raw
+    single-h estimate and fd_consistency both still see the truncation."""
+    import jax.numpy as jnp
+
+    mod = _load_pvgc_optimize_script()
+
+    def vg_fn(p, beta):
+        return jnp.sum(p ** 3), 3 * p ** 2       # exact value & gradient
+
+    def value_fn(p, beta):
+        return jnp.sum(p ** 3)
+
+    p0 = np.full((6, 1, 1), 0.1)
+    res = mod.gradcheck(vg_fn, value_fn, p0, beta=1.0, seed=0)
+
+    assert res["checks"], "gradcheck sampled no voxels"
+    for c in res["checks"]:
+        raw_rel = abs(c["fd_h"] - c["adjoint"]) / abs(c["adjoint"])
+        assert raw_rel > mod.GRADCHECK_TOL, (
+            "test setup should reproduce a single-h FD failing the gate")
+        assert c["fd_consistency"] > mod.GRADCHECK_TOL, (
+            "fd_consistency should flag the same unconverged single-h FD")
+        assert c["rel_err"] < 1e-3, (
+            "Richardson-extrapolated FD must match the analytic gradient")
+    assert res["worst_rel_err"] < mod.GRADCHECK_TOL
+
+
+def test_gradcheck_richardson_agrees_with_single_h_when_fd_is_exact():
+    """A central difference on f(x) = x**2 has NO truncation term at all (the
+    odd-order remainder in the Taylor expansion vanishes identically), so
+    FD(h) == FD(h/2) == f'(x) up to float32 rounding alone for ANY h.
+    Richardson must not fabricate a disagreement where none exists:
+    fd_consistency and rel_err both stay at the rounding floor."""
+    import jax.numpy as jnp
+
+    mod = _load_pvgc_optimize_script()
+
+    def vg_fn(p, beta):
+        return jnp.sum(p ** 2), 2 * p            # exact value & gradient
+
+    def value_fn(p, beta):
+        return jnp.sum(p ** 2)
+
+    p0 = np.full((6, 1, 1), 0.5)
+    res = mod.gradcheck(vg_fn, value_fn, p0, beta=1.0, seed=0)
+
+    assert res["checks"], "gradcheck sampled no voxels"
+    for c in res["checks"]:
+        assert c["rel_err"] < 1e-4
+        assert c["fd_consistency"] < 1e-4

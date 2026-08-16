@@ -13,6 +13,8 @@ Part C: the same finite-difference check on the REAL pvgc design path
         fdtdx itself. Cheap settings, same 5% tolerance.
 """
 
+import os
+
 import numpy as np
 
 from .runner import GateResult
@@ -132,14 +134,28 @@ def _part_c_pvgc_device():
     exceeds the signal, so its "relative error" measures rounding, not the
     adjoint. (Measured in script 15: such a voxel reported 7.7% while its
     neighbours agreed to 0.02-0.2%, the two derivatives differing by 1.3e-8
-    in absolute terms.) Do not "fix" a future failure here by raising
-    REL_TOL — that would hide a real one just as effectively.
+    in absolute terms.) That float32-cancellation mechanism only applies to
+    voxels BELOW the eligibility floor. For an eligible voxel, the FD error at
+    a single h is dominated by truncation instead (diagnosed 2026-08-17 on a
+    production-scale run: halving h cut the discrepancy ~4x, the O(h^2)
+    signature of a central difference) — which is exactly what the Richardson
+    extrapolation below cancels. Do not "fix" a future failure here by
+    raising REL_TOL — that would hide a real one just as effectively.
+
+    sim_time_s defaults to 0.15e-12 so this gate stays fast; that is well
+    short of the 0.8e-12 production scale, so it cannot by itself catch a
+    truncation-error failure that only shows up at production settings.
+    Production-scale gradcheck validation runs via scripts/15's own
+    `--gradcheck` on the actual recipe (see script 15's `gradcheck()`), not
+    here. Set INVDX_G2_SIM_TIME_S to override this default for local
+    debugging.
     """
     import jax.numpy as jnp
 
     from invdx.problems import pvgc
 
-    pcfg = pvgc.PVGCConfig(spacing_um=0.020, sim_time_s=0.15e-12,
+    sim_time_s = float(os.environ.get("INVDX_G2_SIM_TIME_S", 0.15e-12))
+    pcfg = pvgc.PVGCConfig(spacing_um=0.020, sim_time_s=sim_time_s,
                            theta_deg=10.0)
     pcfg.design_grid_per_um = 50
     vg_fn, _, _, params, device, value_fn = pvgc.make_ce_value_and_grad(
@@ -162,18 +178,25 @@ def _part_c_pvgc_device():
     checks, n_bad = [], 0
     for fi in flat_idx:
         idx = np.unravel_index(fi, base.shape)
-        vals = {}
-        for sign in (+1, -1):
-            pert = base.copy()
-            pert[idx] += sign * FD_H
-            vals[sign] = float(value_fn(jnp.asarray(pert, dtype=jnp.float32),
-                                        beta))
-        fd = (vals[+1] - vals[-1]) / (2 * FD_H)
+        fd_by_h = {}
+        for h in (FD_H, FD_H / 2):
+            vals = {}
+            for sign in (+1, -1):
+                pert = base.copy()
+                pert[idx] += sign * h
+                vals[sign] = float(value_fn(
+                    jnp.asarray(pert, dtype=jnp.float32), beta))
+            fd_by_h[h] = (vals[+1] - vals[-1]) / (2 * h)
+        fd_h, fd_h2 = fd_by_h[FD_H], fd_by_h[FD_H / 2]
+        fd = (4 * fd_h2 - fd_h) / 3          # Richardson extrapolation, O(h^4)
         rel = abs(fd - g[idx]) / (abs(fd) + 1e-12)
+        fd_consistency = abs(fd_h - fd_h2) / (abs(fd) + 1e-12)
         n_bad += rel >= REL_TOL
         checks.append({"idx": [int(i) for i in idx],
                        "adjoint": float(g[idx]), "fd": float(fd),
-                       "rel_err": float(rel)})
+                       "fd_h": float(fd_h), "fd_h2": float(fd_h2),
+                       "rel_err": float(rel),
+                       "fd_consistency": float(fd_consistency)})
     return float(f0), checks, n_bad, {"grad_max": float(mag.max()),
                                       "n_eligible": int(eligible.size),
                                       "n_voxels": int(mag.size)}
