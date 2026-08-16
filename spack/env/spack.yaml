@@ -1,9 +1,9 @@
 # 需要 spack v1.2.0；bootstrap 見 ../bootstrap.sh
 spack:
   specs:
-    # 第一段用這行；第二段改成 invdx.meep@1.34.0（namespace 明確指定）
-    - meep@1.29.0 +python +mpi +hdf5 +libctl +harminv +mpb +gsl +openmp ~single
-    - py-numpy@1.26.4        # 第二段可放行到 @2:
+    # 第二段：專案自帶 package repo（namespace invdx 明確指定，見 repos 區段）
+    - invdx.meep@1.34.0 +python +mpi +hdf5 +libctl +harminv +mpb +gsl +openmp ~single
+    - "py-numpy@2:"           # 對齊 conda baseline（pymeep 1.34.0 為 numpy 2 世代）
     - py-mpi4py
     - py-scipy
     - py-matplotlib
@@ -13,9 +13,8 @@ spack:
         - "target=x86_64_v3"   # 泛用微架構，保留可遷移性
     mpi:
       require: [mpich]         # 對齊 conda meep(mpich 4.3.2)，減少 G5 變因
-    swig:
-      require: ["@=4.0.2"]     # meep<=1.31 與 SWIG 4.1+ 衝突（structmember.h 的 READONLY
-                               # 宏打到 meep.hpp 的 enum）；釘回 1.29 時代已知良好版
+    # swig 版本釘（曾因 meep<=1.31 與 SWIG 4.1+ 衝突而釘 @=4.0.2）已於
+    # 2026-08-17 bump 到 1.34.0 時解除，用以驗證上游修復；結果見 commit 說明。
   concretizer:
     unify: true
     reuse: false               # 乾淨譜系；日後可改 true 省時
@@ -23,8 +22,7 @@ spack:
     builtin:
       git: https://github.com/spack/spack-packages.git
       tag: v2026.06.0          # 第二層釘版，缺這行等於沒釘
-    # 第二段再打開：
-    # invdx: $env/../spack_repo/invdx
+    invdx: $env/../spack_repo/invdx
   view:
     default:
       root: .spack-env/view
