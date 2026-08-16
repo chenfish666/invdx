@@ -18,10 +18,11 @@ import json
 import os
 import platform
 
+# MPICH hydra syntax (the conda meep env ships MPICH, not OpenMPI)
 BINDINGS = {
     "none": [],
-    "core": ["--bind-to", "core"],
-    "numa": ["--bind-to", "core", "--map-by", "numa"],
+    "core": ["-bind-to", "core"],
+    "numa": ["-bind-to", "numa"],
 }
 
 
