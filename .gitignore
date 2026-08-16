@@ -15,3 +15,6 @@ rsoft_export/
 
 # 私人筆記(整理給擁有者的 ref/上游草稿),不公開
 docs-private/
+
+# Claude worktree admin
+.claude/
