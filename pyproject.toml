@@ -13,6 +13,7 @@ dependencies = [
     "scipy",
     "autograd",
     "gdstk",
+    "pyevtk",
 ]
 
 [project.optional-dependencies]
