@@ -84,9 +84,9 @@ gate assumes everything before it. Runner: `gates/runner.py`; machine-readable
 
 | # | gate | what it pins down |
 |---|---|---|
-| G0 | unit | pure-math invariants (35 tests: overlaps, filters, toy physics, geometries) |
+| G0 | unit | pure-math invariants (63 tests: overlaps, filters, toy physics, geometries, design-vector round-trips, checkpoint/resume) |
 | G1 | api | released-fdtdx API surface, GPU visible, meep bridge ping |
-| G2 | gradcheck | fdtdx value_and_grad vs finite differences; filter chain rule |
+| G2 | gradcheck | fdtdx value_and_grad vs finite differences, on a toy cell **and on the real pvgc design path**; filter chain rule |
 | G3 | physics | vacuum flux conservation |
 | G4 | reciprocity | forward vs reciprocal CE on the PVGC problem (measured 0.076 dB; the gate class that caught pvgc's 2× bug) |
 | G5 | cross-engine | fdtdx vs Meep transmission after convention alignment |
@@ -140,13 +140,63 @@ fleet's hardware, and anything generally useful gets offered upstream.
   cross-validated three ways against the pvgc/Meep reference (−8.8…−10.1 dB
   consistent); 3D ridge matches quasi-2D at W=10 µm; dual-GPU task
   parallelism for the two independent runs of a 3D measurement (1.97×,
-  bit-identical). Scripts 03–05, 07.
+  bit-identical); inverse design in `scripts/15` (see below). Scripts
+  03–05, 07, 15.
 - **`phc_bend`** — PhC 90° bend from the lab's own paper (square lattice,
   a=1 µm, R=0.225a, ε=10): Γ-X stopband 0.27–0.41 covering the paper's full
   gap 0.29–0.41, in-gap bend transmission T≈0.85–1.1, paper's point-defect
   conclusion reproduced (horizontal/vertical ≫ slant) — on the toy engine,
   cross-checked against Meep. Hands-on tutorial:
   `docs/phc-bend-walkthrough.md`. Script 06.
+
+## Inverse design (M1: the PVGC coupler)
+
+`profile_teeth` binarizes and run-length-encodes a design into
+`UniformMaterialObject` blocks — the right thing for *measuring* a finished
+device, and a dead end for gradients. The M1 driver adds the second route: a
+single `fdtdx.Device` over the design window (one voxel per design pixel,
+`ConicFilter1D(R = min_feature)` → `TanhProjection(β)`) plus a jnp twin of the
+CE chain, so one backward pass reaches all 500 design variables.
+
+```bash
+uv run python scripts/15_pvgc_optimize.py --tag m1 --gradcheck   # ~13 h, 1 GPU
+uv run python scripts/15_pvgc_optimize.py --resume runs/<dir>    # after a kill
+sbatch -p <partition> -t 14:00:00 slurm/pvgc_opt.sbatch          # requeue-safe
+```
+
+- **The two routes must agree.** On a grid-aligned binary design both
+  describe the same device, so `ce_from_arrays` and `characterize` are
+  compared before any optimization is believed — measured 2.5×10⁻⁶ dB apart
+  (20 nm grid, θ=10°, acceptance threshold 0.05 dB). They are not
+  interchangeable in grey: the Device interpolates *inverse* permittivity
+  linearly, a block fills whole cells.
+- **Rasterizing the starting design is physics, not formatting.** Rendering
+  the uniform grating onto 20 nm design pixels by pixel-centre inclusion lets
+  the tooth width alternate 14/15 pixels; that ±3.5% duty jitter costs
+  **13 dB** at 1.31 µm (−26.4 dB vs −13.5 dB, measured). `rasterize_teeth`
+  therefore rounds edge and width the way fdtdx rounds a placed block, which
+  reproduces the cross-validated grating exactly. Conventions lesson 6 bites
+  inside a single engine too.
+- **The grid is not free.** The Device snaps its z voxel with
+  `round(t_si / spacing)`, so `spacing_um` must divide both `t_si` and the
+  design pixel — only 0.020 (design grid 50/25/10) and 0.010 (100/50/25/20)
+  are clean, and `assert_design_grid_snaps` refuses everything else rather
+  than silently optimizing a different device. The module default 0.0125
+  snaps 220 nm silicon to 225 nm.
+- **Checkpoint every iteration.** A round is ~20× a forward run per iteration
+  (`GradientConfig(method="checkpointed", num_checkpoints=20)`: 11.3 GB peak,
+  the measured sweet spot — 40 checkpoints OOMs a 24 GB card, and
+  `"reversible"` is worse here because recording PML boundaries for 20k steps
+  costs hundreds of GB). `invdx.optimize` writes `opt_state.npz` atomically
+  after every step, so `--resume` (and a requeued Slurm job) loses at most one
+  iteration.
+- **The optimizer's number is not the result.** The loop runs at 0.8 ps for
+  speed, which reads ~0.55 dB LOW against the 1.5 ps converged value — a
+  systematic offset shared by every design, so it ranks designs correctly and
+  reports them wrong. The numbers that get quoted come from re-measuring
+  `design_rho.npy` with
+  script 07 (finer grid, dense spectrum, reciprocity), which is why the run
+  directory is written in exactly the layout 07 consumes.
 
 ## Scripts
 
@@ -160,6 +210,10 @@ fleet's hardware, and anything generally useful gets offered upstream.
 | `05_pvgc_3d_dual.py` | dual-GPU task-parallel 3D (empty/grating on separate cards) |
 | `06_phc_bend.py` | PhC bend benchmark, stage by stage (`--stage eps\|gap\|bend\|meep\|compare\|defect`) |
 | `07_pvgc_verify_design.py` | independent-engine verification of a pvgc design run (linewidth + CE spectrum + CD corners) |
+| `15_pvgc_optimize.py` | PVGC inverse design: adjoint optimization of the grating profile (`--gradcheck`, `--resume`) |
+
+(08–14 are the toy-engine lessons and the performance benchmarks; `make help`
+lists the Makefile targets that wrap the common invocations.)
 
 ## Docs
 

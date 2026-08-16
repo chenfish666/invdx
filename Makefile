@@ -21,6 +21,9 @@ smoke-meep:       ## round-trip of the meep-env subprocess bridge
 phc-bend:         ## lab-lineage benchmark, default stages (toy engine, CPU)
 	$(PY) scripts/06_phc_bend.py --tag make
 
+pvgc-opt:         ## M1: one inverse-design round on the pvgc coupler (~13 h, run detached)
+	CUDA_VISIBLE_DEVICES=$(GPU) $(PY) scripts/15_pvgc_optimize.py --tag m1 --gradcheck
+
 help:
 	@grep -E '^[a-z-]+:.*##' Makefile | sed 's/:.*##/  -/'
 

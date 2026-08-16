@@ -1062,3 +1062,316 @@ def characterize_spectrum(cfg, teeth, lams_um, azimuth_sign=None, seed=0,
                     "CE_dB": float(10 * np.log10(abs(ce) + 1e-15)),
                     "P_in": p_in, "n_eff": float(neff)})
     return {"spectrum": out, "azimuth_sign": azimuth_sign}
+
+
+# --------------------------------------------------------------------------
+# Inverse design (M1) — the differentiable rho -> CE path
+# --------------------------------------------------------------------------
+#
+# `profile_teeth` binarizes with `> 0.5` and run-length-encodes into
+# UniformMaterialObject blocks: excellent for MEASURING a finished design,
+# but a dead end for gradients. This section adds the second, differentiable
+# rho -> permittivity route (one `fdtdx.Device` over the design window) and
+# a jnp twin of the CE measurement chain, so `jax.value_and_grad` reaches
+# every design voxel in one backward pass.
+#
+# The two routes must agree on binary designs — same grid, same tooth edges,
+# only the permittivity WRITE differs (Device linearly interpolates inverse
+# permittivity; UniformMaterialObject fills whole cells). That agreement is
+# an acceptance criterion, not an assumption: compare `ce_from_arrays` and
+# `characterize` on one rasterized grating before trusting any optimization.
+#
+# Grid constraints (hard, checked by callers): the Device z voxel is t_si
+# snapped by round(t/resolution), so t_si/spacing_um must be an integer, and
+# 1/design_grid_per_um must be an integer multiple of spacing_um. With the
+# defaults (t_si = 0.220) only spacing_um in {0.020, 0.010} is clean; the
+# module default 0.0125 snaps t_si to 0.225 um and must NOT be used here.
+
+
+def design_device(cfg, name="design", with_transforms=True):
+    """The one differentiable rho -> permittivity object: an air/Si Device
+    covering the design window ([-L_design/2, +L_design/2] x full y x t_si)
+    with one voxel per design pixel.
+
+    with_transforms=True installs the production parameter chain
+    (ConicFilter1D(radius = cfg.filter_radius) -> TanhProjection(eta_i)), so
+    the latent parameters are filtered and projected before they become
+    material indices. with_transforms=False makes the parameters the physical
+    density itself — the only way to place a PRESCRIBED profile (e.g. a
+    rasterized grating) into the Device path for comparison against the
+    `characterize` measurement chain.
+    """
+    transforms = []
+    if with_transforms:
+        from ..fab.transforms import ConicFilter1D
+
+        transforms = [ConicFilter1D(radius_um=cfg.filter_radius, axis=0),
+                      fdtdx.TanhProjection(projection_midpoint=cfg.eta_i)]
+    return fdtdx.Device(
+        name=name,
+        materials={"air": fdtdx.Material(permittivity=1.0),
+                   "si": fdtdx.Material(permittivity=cfg.n_si ** 2)},
+        param_transforms=transforms,
+        partial_real_shape=(cfg.L_design * UM, None, cfg.t_si * UM),
+        # one design pixel wide, the full thin y axis, the full Si thickness
+        partial_voxel_real_shape=(UM / cfg.design_grid_per_um,
+                                  cfg.n_y_cells * cfg.spacing_um * UM,
+                                  cfg.t_si * UM),
+    )
+
+
+def n_design_voxels(cfg):
+    """Length of the design vector — must match what script 07 expects
+    (L_design is pinned at its default there, so never change it)."""
+    return int(round(cfg.L_design * cfg.design_grid_per_um))
+
+
+def assert_design_grid_snaps(cfg):
+    """Fail loudly when the Device cannot be placed without snapping error."""
+    for label, length in (("t_si", cfg.t_si),
+                          ("design pixel", 1.0 / cfg.design_grid_per_um),
+                          ("L_design", cfg.L_design)):
+        n = length / cfg.spacing_um
+        if abs(n - round(n)) > 1e-9:
+            raise ValueError(
+                f"{label} = {length} um is not an integer multiple of "
+                f"spacing_um = {cfg.spacing_um} um ({n:.6f} cells): the "
+                f"fdtdx Device would snap it and the design grid would no "
+                f"longer line up with the measurement grid. Use "
+                f"spacing_um = 0.020 (design_grid_per_um in 50/25/10) or "
+                f"0.010 (100/50/25/20).")
+    if 1.0 / cfg.spacing_um < cfg.design_grid_per_um - 1e-9:
+        raise ValueError(
+            f"1/spacing_um = {1 / cfg.spacing_um:.1f} < design_grid_per_um = "
+            f"{cfg.design_grid_per_um}: adjoint gradients are systematically "
+            f"underestimated below the design grid (conventions lesson 3).")
+
+
+def build_scene_design(cfg, num_checkpoints=20, excitation="fiber",
+                       lams_um=None, with_transforms=True):
+    """`build_scene` plus the design Device and a checkpointed GradientConfig.
+
+    Everything that defines the physics — source, PML, monitors, stack — comes
+    from the existing `build_scene(teeth=None, with_chip=True)`, so the
+    differentiable FOM measures the same device as `characterize` does; only
+    the grating itself is replaced by the Device.
+
+    with_transforms=False makes the latent parameters the physical density
+    (see `design_device`) — the acceptance-check path, not the design path.
+
+    Returns (sim_config, object_list, constraints, device). The returned
+    device is the UNPLACED template (use `objects.devices[0]` after
+    `place_objects` for anything that evaluates the transform chain).
+    """
+    assert_design_grid_snaps(cfg)
+    prev_lams = getattr(cfg, "_lams_um", None)
+    if lams_um is not None:
+        cfg._lams_um = tuple(lams_um)
+    try:
+        sim_config, object_list, constraints = build_scene(
+            cfg, teeth=None, with_chip=True, excitation=excitation)
+    finally:
+        cfg._lams_um = prev_lams
+
+    sim_config = sim_config.aset("gradient_config", fdtdx.GradientConfig(
+        method="checkpointed", num_checkpoints=num_checkpoints))
+
+    device = design_device(cfg, with_transforms=with_transforms)
+    volume = object_list[0]
+    # same anchoring as build_scene's block(): pvgc coords -> scene coords
+    constraints.append(device.place_relative_to(
+        volume, axes=(0, 2), own_positions=(-1, -1), other_positions=(-1, -1),
+        margins=((cfg.X0 - cfg.L_design / 2) * UM, cfg.Z0 * UM)))
+    constraints.append(device.same_size(volume, axes=(1,)))
+    object_list.append(device)
+    return sim_config, object_list, constraints, device
+
+
+def te0_target_on_monitor(cfg, nz_mon, lam_um=None):
+    """Static (numpy) -x traveling TE0 target on the wg_mon line.
+
+    Returns (Em, Hm_back, Pm, n_eff) with Pm the mode power that
+    `overlap_power_directional` divides by — computed here once so the
+    traced FOM never re-solves the analytic mode.
+    """
+    z_mon_lo = cfg.t_si / 2 - cfg.wg_mon_height / 2
+    zs = z_mon_lo + (np.arange(nz_mon) + 0.5) * cfg.spacing_um
+    mode_cfg = cfg
+    if lam_um is not None and abs(float(lam_um) - cfg.lam_c) > 1e-12:
+        # only the lam-dependent mode parameters matter (characterize_spectrum)
+        mode_cfg = type(cfg)()
+        mode_cfg.lam_c, mode_cfg.t_si = float(lam_um), cfg.t_si
+        mode_cfg.n_si, mode_cfg.n_sio2 = cfg.n_si, cfg.n_sio2
+    Em, Hm_fwd, neff = slab_te0_mode(zs, 0.0, mode_cfg)
+    Hm_back = -Hm_fwd
+    Pm = abs(0.5 * np.real(np.sum(Em * np.conj(Hm_back))) * cfg.spacing_um)
+    return Em, Hm_back, float(Pm), float(neff)
+
+
+def overlap_power_directional_jnp(E, H, Em, Hm, dl, Pm):
+    """jnp twin of `overlap_power_directional` with Pm precomputed.
+
+    Same 1/2 power convention, same 1/4 coupling coefficient; the numpy
+    original recomputes Pm from (Em, Hm) every call, this one takes it as a
+    static number so the traced graph stays tiny. Parity with the numpy
+    version is a unit test (tests/test_pvgc_optimize.py), not a claim.
+    """
+    import jax.numpy as jnp
+
+    Emj = jnp.asarray(Em)
+    Hmj = jnp.asarray(Hm)
+    a = 0.25 * jnp.sum(E * jnp.conj(Hmj) + jnp.conj(Emj) * H) * dl
+    return jnp.abs(a) ** 2 / Pm
+
+
+def ce_from_arrays(arrays, cfg, target, p_in, lam_idx=0):
+    """Differentiable twin of `characterize`'s CE, read off a finished run.
+
+    arrays — the ArrayContainer returned by a differentiable run of the
+             `build_scene_design` scene (wg_mon PhasorDetector present)
+    target — `te0_target_on_monitor(...)` for the same lam_idx
+    p_in   — incident beam power from the empty-cell run at that wavelength
+             (a plain float: it does not depend on the design)
+    """
+    import jax.numpy as jnp
+
+    Em, Hm, Pm, _ = target
+    ph = arrays.detector_states["wg_mon"]["phasor"]
+    # wg_mon is an x-plane: (nt=1, n_lam, n_comp, 1, ny, nz); average the thin
+    # periodic y axis exactly as the numpy `_phasor` reader does
+    Ey = jnp.mean(ph[0, lam_idx, 0], axis=(0, 1))
+    Hz = jnp.mean(ph[0, lam_idx, 1], axis=(0, 1))
+    p_mode = overlap_power_directional_jnp(Ey, Hz, Em, Hm,
+                                           cfg.spacing_um, Pm)
+    return p_mode / p_in
+
+
+def beam_power_spectrum(cfg, lams_um, seed=0, azimuth_sign=1.0):
+    """Incident beam power per wavelength from ONE empty-cell run.
+
+    The multi-wavelength companion of `beam_power_and_tilt` (which only
+    reports lam_c): needed because a multi-wavelength FOM must normalize each
+    wavelength by its own P_in. Calibrate the tilt with `calibrated_beam`
+    first — the slope check is only valid at lam_c.
+    """
+    prev_lams = getattr(cfg, "_lams_um", None)
+    cfg._lams_um = tuple(lams_um)
+    try:
+        arrays = _run(cfg, teeth=None, with_chip=False, seed=seed,
+                      azimuth_sign=azimuth_sign)
+    finally:
+        cfg._lams_um = prev_lams
+    out = []
+    for k in range(len(tuple(lams_um))):
+        Ey = _phasor(arrays, "fiber_mon", 0, y_axis=1, lam_idx=k)
+        Hx = _phasor(arrays, "fiber_mon", 1, y_axis=1, lam_idx=k)
+        out.append(phasor_line_power(Ey, Hx, cfg.spacing_um))
+    return out
+
+
+def make_ce_value_and_grad(cfg, p_in, num_checkpoints=20, lams=None,
+                           with_transforms=True, seed=None):
+    """Build the differentiable pvgc FOM once; return the compiled callables.
+
+    Returns (vg_fn, objects, arrays, params0, device, value_fn) where
+
+        vg_fn(p, beta)    -> (loss, dloss/dp),  loss = -CE  (minimize)
+        value_fn(p, beta) -> loss                (finite differences)
+
+    `p` is the latent design array of shape (n_design_voxels, 1, 1) and
+    `beta` is passed as a TRACED argument, so the whole beta schedule runs on
+    a single compilation (fdtdx's TanhProjection takes beta as a kwarg of
+    apply_params).
+
+    Multiple `lams` are aggregated with the smooth minimum (cfg.softmin_beta)
+    — worst-wavelength-first, at essentially zero extra cost because one run
+    produces every phasor. `p_in` is then a per-wavelength sequence.
+
+    `device` is the PLACED device (its transform chain is initialized), which
+    is what `rho_from_params` needs.
+    """
+    import jax.numpy as jnp
+
+    from ..fab.filters_jax import softmin
+
+    lams = tuple(lams) if lams else (cfg.lam_c,)
+    p_in_list = ([float(p_in)] * len(lams) if np.isscalar(p_in)
+                 else [float(v) for v in p_in])
+    if len(p_in_list) != len(lams):
+        raise ValueError(f"p_in has {len(p_in_list)} entries but "
+                         f"{len(lams)} wavelengths were requested")
+
+    sim_config, objs, cons, template = build_scene_design(
+        cfg, num_checkpoints=num_checkpoints,
+        lams_um=lams if len(lams) > 1 else None,
+        with_transforms=with_transforms)
+
+    key = jax.random.PRNGKey(cfg.seed if seed is None else seed)
+    key, k1, k2 = jax.random.split(key, 3)
+    objects, arrays, params, sim_config, _ = fdtdx.place_objects(
+        object_list=objs, config=sim_config, constraints=cons, key=k1)
+    device = next(d for d in objects.devices if d.name == template.name)
+
+    nz_mon = arrays.detector_states["wg_mon"]["phasor"].shape[-1]
+    targets = [te0_target_on_monitor(cfg, nz_mon, lam_um=l) for l in lams]
+
+    def loss(p, beta):
+        prm = dict(params)
+        prm[device.name] = p
+        a, o, _ = fdtdx.apply_params(arrays, objects, prm, k2, beta=beta)
+        _, a = fdtdx.run_fdtd(arrays=a, objects=o, config=sim_config, key=key,
+                              show_progress=False)
+        ces = [ce_from_arrays(a, cfg, targets[k], p_in_list[k], lam_idx=k)
+               for k in range(len(lams))]
+        ce = ces[0] if len(ces) == 1 else softmin(jnp.stack(ces),
+                                                  cfg.softmin_beta)
+        return -ce
+
+    return (jax.jit(jax.value_and_grad(loss)), objects, arrays, params,
+            device, jax.jit(loss))
+
+
+def rho_from_params(device, params, beta):
+    """Host-side physical density (0..1, length n_design_voxels) of a latent
+    parameter vector — the transform chain evaluated outside the simulation.
+
+    This is what goes into design_rho_cont.npy; its `> 0.5` binarization is
+    design_rho.npy, the file script 07 re-measures.
+    """
+    import jax.numpy as jnp
+
+    p = params[device.name] if isinstance(params, dict) else params
+    dens = device(jnp.asarray(p), expand_to_sim_grid=False,
+                  beta=jnp.asarray(beta, dtype=jnp.float32))
+    return np.asarray(dens, dtype=float).reshape(-1)
+
+
+def rasterize_teeth(cfg, teeth):
+    """Inverse of `profile_teeth`: teeth (pvgc x-coords) -> design vector.
+
+    Each tooth is rounded to whole pixels the way fdtdx rounds a placed
+    UniformMaterialObject — nearest pixel for the left edge, nearest pixel
+    count for the width — so an off-grid grating renders here to the same
+    device fdtdx would build from the teeth directly. That equivalence is the
+    whole point: `--init grating` is the only starting design in this repo
+    with a cross-validated baseline, and it only IS that design if the
+    rasterization preserves it.
+
+    A pixel-centre rule (silicon where the pixel centre falls inside a tooth)
+    looks equally defensible and is not: it lets the tooth WIDTH alternate
+    between 14 and 15 pixels across a 0.575 um / 20 nm grating, and the
+    resulting +-3.5% duty jitter moves the coupling ridge far enough to cost
+    13 dB at 1.31 um (measured -26.4 dB vs -13.5 dB, 0.3 ps, theta=10). That
+    is conventions lesson 6 biting inside a single engine.
+
+    Round-tripping a grid-aligned profile is exact either way, which is what
+    the unit test pins.
+    """
+    n = n_design_voxels(cfg)
+    grid = cfg.design_grid_per_um
+    rho = np.zeros(n)
+    for x_min, w in (teeth or []):
+        i0 = int(round((x_min + cfg.L_design / 2) * grid))
+        i1 = i0 + int(round(w * grid))
+        rho[max(i0, 0):max(min(i1, n), 0)] = 1.0
+    return rho

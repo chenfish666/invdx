@@ -84,10 +84,21 @@ def _env_snapshot():
     return "".join(lines)
 
 
-def start_run(cfg, args, name):
-    """Create <runs_root>/<timestamp>-<name>[-tag]/ and snapshot config + env."""
+def start_run(cfg, args, name, run_dir=None):
+    """Create <runs_root>/<timestamp>-<name>[-tag]/ and snapshot config + env.
+
+    run_dir — use this exact directory instead of a fresh timestamped one.
+              Needed by jobs whose directory must be predictable before the
+              process starts (a requeued Slurm job has to find its own
+              checkpoint again); everything else leaves it None.
+    """
     tag = name + (("-" + args.tag) if args.tag else "")
-    d = runio.new_run_dir(tag, base=cfg.runs_root)
+    if run_dir:
+        d = run_dir
+        if runio.am_master():
+            os.makedirs(d, exist_ok=True)
+    else:
+        d = runio.new_run_dir(tag, base=cfg.runs_root)
     runio.save_json(os.path.join(d, "config.json"), asdict(cfg))
     if runio.am_master():
         with open(os.path.join(d, "cmdline.txt"), "w") as f:

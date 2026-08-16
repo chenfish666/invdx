@@ -7,6 +7,10 @@ pvgc measured 5-8% systematic error from under-resolution this way).
 Part A: ConicFilter1D chain rule vs the authoritative numpy+autograd mapping.
 Part B: jax.value_and_grad through a tiny fdtdx device sim vs central FD on
         k=3 random design voxels, rel. err < 5%.
+Part C: the same finite-difference check on the REAL pvgc design path
+        (filter -> projection -> Device -> full coupler scene -> mode
+        overlap), because Part B's toy cell shares no code with it beyond
+        fdtdx itself. Cheap settings, same 5% tolerance.
 """
 
 import numpy as np
@@ -20,6 +24,10 @@ REQUIRES = ("gpu",)
 FD_H = 0.05
 REL_TOL = 0.05
 K_SAMPLES = 3
+# Part C only: a central difference cannot resolve a derivative whose signal
+# sits under its own float32 cancellation noise, so sample voxels carrying at
+# least this fraction of the peak gradient (see _part_c_pvgc_device).
+MIN_REL_GRAD = 0.05
 
 
 def _part_a_filter_chain():
@@ -102,6 +110,75 @@ def _part_b_fdtdx_fd(cfg):
     return float(f0), checks, n_bad
 
 
+def _part_c_pvgc_device():
+    """Finite-difference the production pvgc inverse-design gradient.
+
+    Cheap-but-real settings: the full coupler scene at the 20 nm grid (the
+    grid the M1 recipe uses, and the only one that divides t_si exactly), a
+    0.15 ps run and 10 checkpoints. The FOM is the unnormalized mode power
+    (P_in = 1): the incident-beam normalization is a design-independent
+    constant, so leaving it out saves an empty-cell run without weakening the
+    check by anything.
+
+    The base design is the uniform grating softened to 0.1/0.9 — a mid-grey
+    slab has almost no gradient signal to check (it is not a grating), and a
+    hard 0/1 profile sits on the clip boundary where the central difference
+    would degenerate into a one-sided one.
+
+    Sampling is restricted to voxels carrying at least MIN_REL_GRAD of the
+    peak gradient. Deep inside a wide tooth the tanh projection saturates and
+    the true derivative is ~1e-3 of the peak; there the finite difference is
+    a subtraction of two nearly equal float32 numbers and its own noise floor
+    exceeds the signal, so its "relative error" measures rounding, not the
+    adjoint. (Measured in script 15: such a voxel reported 7.7% while its
+    neighbours agreed to 0.02-0.2%, the two derivatives differing by 1.3e-8
+    in absolute terms.) Do not "fix" a future failure here by raising
+    REL_TOL — that would hide a real one just as effectively.
+    """
+    import jax.numpy as jnp
+
+    from invdx.problems import pvgc
+
+    pcfg = pvgc.PVGCConfig(spacing_um=0.020, sim_time_s=0.15e-12,
+                           theta_deg=10.0)
+    pcfg.design_grid_per_um = 50
+    vg_fn, _, _, params, device, value_fn = pvgc.make_ce_value_and_grad(
+        pcfg, p_in=1.0, num_checkpoints=10)
+
+    rho = pvgc.rasterize_teeth(pcfg, pvgc.uniform_grating_teeth(
+        pcfg, period=0.575, duty=0.5))
+    base = (0.1 + 0.8 * rho).reshape(params[device.name].shape)
+    beta = jnp.asarray(float(pcfg.beta_schedule[0]), dtype=jnp.float32)
+
+    f0, grads = vg_fn(jnp.asarray(base, dtype=jnp.float32), beta)
+    g = np.asarray(grads)
+
+    mag = np.abs(g).ravel()
+    eligible = np.flatnonzero(mag >= MIN_REL_GRAD * mag.max())
+    if eligible.size < K_SAMPLES:
+        eligible = np.argsort(-mag)[:K_SAMPLES]
+    rng = np.random.default_rng(pcfg.seed)
+    flat_idx = rng.choice(eligible, size=K_SAMPLES, replace=False)
+    checks, n_bad = [], 0
+    for fi in flat_idx:
+        idx = np.unravel_index(fi, base.shape)
+        vals = {}
+        for sign in (+1, -1):
+            pert = base.copy()
+            pert[idx] += sign * FD_H
+            vals[sign] = float(value_fn(jnp.asarray(pert, dtype=jnp.float32),
+                                        beta))
+        fd = (vals[+1] - vals[-1]) / (2 * FD_H)
+        rel = abs(fd - g[idx]) / (abs(fd) + 1e-12)
+        n_bad += rel >= REL_TOL
+        checks.append({"idx": [int(i) for i in idx],
+                       "adjoint": float(g[idx]), "fd": float(fd),
+                       "rel_err": float(rel)})
+    return float(f0), checks, n_bad, {"grad_max": float(mag.max()),
+                                      "n_eligible": int(eligible.size),
+                                      "n_voxels": int(mag.size)}
+
+
 def run(cfg, args):
     err_a = _part_a_filter_chain()
     if err_a > 1e-4:
@@ -116,5 +193,17 @@ def run(cfg, args):
             "reason": f"{n_bad}/{len(checks)} sampled fdtdx gradients exceed "
                       f"{REL_TOL:.0%} rel. err — do not trust any optimization "
                       f"until resolved (check resolution vs design grid first)",
+            **details})
+
+    f0_c, checks_c, n_bad_c, info_c = _part_c_pvgc_device()
+    details["pvgc_f0"] = f0_c
+    details["pvgc_fd_checks"] = checks_c
+    details["pvgc_sampling"] = info_c
+    if n_bad_c:
+        return GateResult(NAME, "fail", {
+            "reason": f"{n_bad_c}/{len(checks_c)} sampled pvgc design "
+                      f"gradients exceed {REL_TOL:.0%} rel. err — the "
+                      f"inverse-design path is not trustworthy (check "
+                      f"spacing_um vs design_grid_per_um first)",
             **details})
     return GateResult(NAME, "ok", details)
