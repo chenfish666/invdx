@@ -20,29 +20,16 @@ while true; do
   g0=$(echo "$g" | sed -n 1p); g1=$(echo "$g" | sed -n 2p)
   u0=${g0%%,*}; r0=${g0#*,}; m0=${r0%%,*}; t0=${r0##*,}
   u1=${g1%%,*}; r1=${g1#*,}; m1=${r1%%,*}; t1=${r1##*,}
-  # sanitize non-numeric readings ([N/A], ERR!, [GPUrequiresreset]) -> GPU
-  # error state: alert (rate-limited) instead of crashing on arithmetic
-  case "$u0$u1" in
-    *N/A*|*ERR*)
-      t=$(now)
-      if [ "${gpuerr:-0}" = 0 ] || [ $((t - ${gpuerr_t:-0})) -ge 1800 ]; then
-        echo "[HW-GPU-ERR] GPU 錯誤狀態: $(nvidia-smi --query-gpu=index,pstate --format=csv,noheader 2>/dev/null | tr '\n' '; ') — 需要 host 端重置"
-        gpuerr=1; gpuerr_t=$t
-      fi
-      echo "$ts,ERR,$m0,ERR,ERR,$m1,ERR,$load,$ram,$disk,$procs" >> "$CSV"
-      hb=$((hb+1)); sleep 10; continue
-      ;;
-    *)
-      if [ "${gpuerr:-0}" = 1 ]; then echo "[HW-OK] GPU 讀值恢復正常"; gpuerr=0; fi
-      ;;
-  esac
   load=$(cut -d' ' -f1 /proc/loadavg)
   ram=$(free | awk '/Mem:/{printf "%.0f", $3/$2*100}')
   disk=$(df --output=pcent / | tail -1 | tr -d ' %')
   procs=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sort | tr '\n' ':')
   echo "$ts,$u0,$m0,$t0,$u1,$m1,$t1,$load,$ram,$disk,$procs" >> "$CSV"
 
-  # zombie: big memory + sustained idle
+  # util unreadable (container GPU telemetry degraded) -> numeric guard
+  case "$u0" in ''|*[!0-9]*) u0="";; esac
+  case "$u1" in ''|*[!0-9]*) u1="";; esac
+  # zombie: big memory + sustained idle (needs readable util)
   if [ "${m0:-0}" -ge 8192 ] 2>/dev/null && [ "${u0:-100}" -le 5 ] 2>/dev/null; then
     z0=$((z0+1)); else z0=0; [ $a0 = 1 ] && echo "[HW-OK] GPU0 zombie signature cleared"; a0=0; fi
   if [ "${m1:-0}" -ge 8192 ] 2>/dev/null && [ "${u1:-100}" -le 5 ] 2>/dev/null; then
@@ -58,13 +45,13 @@ while true; do
   fi
 
   # GPU became free: <5% util AND <1GiB for 12 samples (2 min)
-  if [ "${u0:-100}" -le 5 ] 2>/dev/null && [ "${m0:-9999}" -le 1024 ] 2>/dev/null; then
+  if [ "${m0:-9999}" -le 1024 ] 2>/dev/null && { [ -z "$u0" ] || [ "$u0" -le 5 ]; }; then
     f0=$((f0+1)); else f0=0; free0=0; fi
   if [ $f0 -ge 12 ] && [ $free0 = 0 ]; then
     echo "[HW-FREE] GPU0 空閒 2 分鐘(外部工作結束?)— 排隊的 Ada 實驗可以上"
     free0=1
   fi
-  if [ "${u1:-100}" -le 5 ] 2>/dev/null && [ "${m1:-9999}" -le 1024 ] 2>/dev/null; then
+  if [ "${m1:-9999}" -le 1024 ] 2>/dev/null && { [ -z "$u1" ] || [ "$u1" -le 5 ]; }; then
     f1=$((f1+1)); else f1=0; free1=0; fi
   if [ $f1 -ge 12 ] && [ $free1 = 0 ]; then
     echo "[HW-FREE] GPU1 空閒 2 分鐘 — 排隊的 Ada 實驗可以上"
