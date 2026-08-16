@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+runs/
+outputs/
+.pytest_cache/
+
+# 使用者個人資料,不進 repo
+diagrams/
+papers_lab/
+papers_professor/
+
+# RSoft handoff bundles (design geometry - transfer out-of-band, never via git)
+rsoft_export/
