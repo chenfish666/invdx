@@ -12,3 +12,6 @@ papers_professor/
 
 # RSoft handoff bundles (design geometry - transfer out-of-band, never via git)
 rsoft_export/
+
+# 私人筆記(整理給擁有者的 ref/上游草稿),不公開
+docs-private/

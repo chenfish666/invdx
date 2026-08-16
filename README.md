@@ -13,8 +13,8 @@ cross-validation engine behind one config-driven, validation-gated workflow.
   Upstream code is never modified. **Vendored exceptions (recorded per the
   layer's own rule):** `engines/fdtdx_fixes.py` — a `GaussianBeamSource`
   subclass overriding one method of the released `GaussianPlaneSource`,
-  whose profile builder NaNs on rectangular source planes (bug report
-  draft: `docs/fdtdx-upstream-issues.md`).
+  whose profile builder NaNs on rectangular source planes (documented in
+  the module docstring).
 - **Layer B — methodology (this package's identity).**
   Config + `--set` override + run-directory snapshots (`config.py`, `cli.py`,
   `runio.py`); the validation-gate framework (`gates/`); fabrication-robustness
@@ -157,8 +157,6 @@ fleet's hardware, and anything generally useful gets offered upstream.
 
 - `docs/phc-bend-walkthrough.md` — hands-on reproduction of the lab's PhC
   paper, one command per step (in Chinese).
-- `docs/fdtdx-upstream-issues.md` — drafts of upstream bug reports (not yet
-  filed; includes the red-herring warning so it doesn't get re-reported).
 
 ## Paper toolkit
 
