@@ -42,7 +42,7 @@ def test_bend_symmetric_under_antidiagonal():
 
 def test_toy_band_gap_and_bend():
     # fast physics regression (~5 s): the Gamma-X stopband must cover the
-    # paper's full gap 0.29..0.41, and the in-gap bend transmission must be
+    # reference's full gap 0.29..0.41, and the in-gap bend transmission must be
     # waveguide-like. Small lattice + coarse grid: qualitative thresholds.
     cfg = phc_bend.PhCBendConfig(n_side=9, res_per_a=10, toy_steps=2500,
                                  n_freq=13)

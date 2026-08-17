@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-"""PhC 90-degree bend — the lab-lineage showcase problem, stage by stage.
+"""PhC 90-degree bend — the standard literature-benchmark showcase problem,
+stage by stage.
 
-Reproduces the professor's paper (square lattice a=1um, rods R=0.225a,
+Reproduces the literature benchmark (square lattice a=1um, rods R=0.225a,
 eps=10, TM band gap f=0.29..0.41; 90-degree bend carved by omitting rods;
 point defects near the bend) on two engines: the self-written toy 2D FDTD
 and Meep via the cross-env bridge.
@@ -13,7 +14,7 @@ Each stage is one hands-on step of docs/phc-bend-walkthrough.md:
   python scripts/06_phc_bend.py --stage bend     # bend transmission (toy)
   python scripts/06_phc_bend.py --stage meep     # Meep cross-check (bridge)
   python scripts/06_phc_bend.py --stage compare  # toy vs Meep, curve view
-  python scripts/06_phc_bend.py --stage defect   # paper's point-defect sweep
+  python scripts/06_phc_bend.py --stage defect   # reference point-defect sweep
   python scripts/06_phc_bend.py                  # eps + gap + bend
 
 Every stage accepts --set (e.g. --set n_side=11 --set toy_steps=3000 for a
@@ -29,7 +30,7 @@ from invdx.cli import base_parser, apply_overrides, start_run
 from invdx.problems import phc_bend
 from invdx import runio
 
-GAP_REF = (0.29, 0.41)      # paper: band gap in normalized frequency a/lam
+GAP_REF = (0.29, 0.41)      # reference: band gap in normalized frequency a/lam
 
 
 def bar(db, lo=-45):
@@ -59,7 +60,7 @@ def stage_eps(cfg, d):
 
 
 def stage_gap(cfg, d):
-    """Toy bulk transmission -> band-gap location vs the paper."""
+    """Toy bulk transmission -> band-gap location vs the reference."""
     res = phc_bend.toy_bulk_transmission(cfg)
     f = np.array(res["freqs"])
     Tdb = 10 * np.log10(np.abs(res["T"]) + 1e-12)
@@ -69,7 +70,7 @@ def stage_gap(cfg, d):
     deep = f[Tdb < -20]
     if len(deep):
         print(f"\n[gap] stopband (T < -20 dB): f = {deep.min():.3f}"
-              f"..{deep.max():.3f}   paper: {GAP_REF[0]}..{GAP_REF[1]}")
+              f"..{deep.max():.3f}   reference: {GAP_REF[0]}..{GAP_REF[1]}")
     else:
         print("\n[gap] NO stopband found — geometry or eps is wrong")
     runio.save_json(os.path.join(d, "gap.json"), res)
@@ -102,7 +103,7 @@ def stage_meep(cfg, d):
     deep = f[Tk < -20]
     if len(deep):
         print(f"[meep] stopband: f = {deep.min():.3f}..{deep.max():.3f}   "
-              f"paper: {GAP_REF[0]}..{GAP_REF[1]}")
+              f"reference: {GAP_REF[0]}..{GAP_REF[1]}")
     print(f"[meep] spectra saved to {d}/meep.json")
 
 
@@ -147,14 +148,14 @@ def stage_field(cfg, d, defect=None, fstar=0.34):
 
 DEFECTS = {
     # ring of candidate point defects around the bend corner, named by the
-    # paper's layers (I = nearest) and orientation relative to the corner
+    # reference's layers (I = nearest) and orientation relative to the corner
     "I-horizontal": (1, 0), "I-vertical": (0, -1), "I-slant": (1, -1),
     "II-horizontal": (2, 0), "II-vertical": (0, -2), "II-slant": (2, -2),
 }
 
 
 def stage_defect(cfg, d):
-    """Point-defect sweep: does the toy reproduce the paper's conclusion
+    """Point-defect sweep: does the toy reproduce the reference conclusion
     (vertical/horizontal defects matter more than slanted ones)?"""
     f0, T0, gap = stage_bend(cfg, d, defect=None)
     base = T0[gap].mean()
@@ -169,7 +170,7 @@ def stage_defect(cfg, d):
     runio.save_json(os.path.join(d, "defects.json"),
                     [{"name": n, "defect": list(dd), "T_mean": tm,
                       "delta": dl} for n, dd, tm, dl in rows])
-    print("\n[defect] paper's claim to check: |delta| of horizontal/vertical"
+    print("\n[defect] reference claim to check: |delta| of horizontal/vertical"
           " > |delta| of slant (within each layer)")
 
 

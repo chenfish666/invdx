@@ -1,15 +1,18 @@
-"""PhC 90-degree bend — reproduction benchmark of the lab's own paper:
+"""PhC 90-degree bend — standard benchmark in the photonic-crystal waveguide
+literature:
 
-    "Transmission characteristic of defect for the 90 bend photonic crystal"
-    (Lu et al.): 2D square lattice of dielectric rods, a = 1 um, rod radius
-    R = 0.225a, eps_rod = 10 (n = 3.162), TM polarization (E along the rods —
-    the paper's engineering convention calls this "TE"; see the walkthrough),
-    band gap at normalized frequency f = a/lambda = 0.29..0.41. A 90-degree
-    bend waveguide is carved by omitting rods; point defects (extra omitted
-    rods) near the bend perturb the transmission.
+    2D square lattice of dielectric rods, a = 1 um, rod radius R = 0.225a,
+    eps_rod = 10 (n = 3.162), TM polarization (E along the rods — some
+    engineering literature calls this "TE"; see the walkthrough), band gap
+    at normalized frequency f = a/lambda = 0.29..0.41, in the spirit of
+    Mekis et al.'s high-transmission PhC bend (Phys. Rev. Lett. 77, 3787,
+    1996) and standard in PhC-waveguide textbooks (Joannopoulos, Johnson,
+    Winn & Meade). A 90-degree bend waveguide is carved by omitting rods;
+    point defects (extra omitted rods) near the bend perturb the
+    transmission.
 
 Role in invdx: showcase problem + regression benchmark connecting the
-toolbox to the lab's pre-inverse-design lineage. It runs on the two engines
+toolbox to a well-known literature reference. It runs on the two engines
 that bracket the trust ladder — the self-written toy 2D FDTD (Layer C) and
 Meep via the bridge (Layer A anchor) — and their transmission spectra are
 compared as CURVES (conventions lesson 6), never at single frequencies.
@@ -30,12 +33,12 @@ from ..config import BaseConfig
 
 @dataclass
 class PhCBendConfig(BaseConfig):
-    # ---- Lattice (paper values) ----
+    # ---- Lattice (literature values) ----
     r_rod: float = 0.225        # rod radius in units of a
     eps_rod: float = 10.0       # dielectric constant of the rods
     n_side: int = 21            # rods per side (odd: bend corner on a site)
 
-    # ---- Band (paper: gap f = 0.29..0.41) ----
+    # ---- Band (reference gap f = 0.29..0.41) ----
     f_min: float = 0.20
     f_max: float = 0.50
     n_freq: int = 61
@@ -86,8 +89,8 @@ def rod_sites(n_side, layout, defect=None, bulk_cols=8):
                          (ix = c, iy >= c) removed — light enters along +x
                          and leaves along +y
     defect — optional (di, dj): additionally remove the rod at
-             (c + di, c + dj), the paper's point defect (site offsets are
-             counted from the bend corner)
+             (c + di, c + dj), the benchmark's point defect (site offsets
+             are counted from the bend corner)
     """
     c = n_side // 2
     lo, hi = -1, n_side + 1                  # extra ring: -1 .. n_side
@@ -209,7 +212,7 @@ def toy_bend_transmission(cfg, defect=None):
 
 def toy_bulk_transmission(cfg):
     """T(f) through a bulk_cols-period slab vs empty grid — locates the band
-    gap. The paper's gap f = 0.29..0.41 is the parameter-free anchor: if this
+    gap. The reference gap f = 0.29..0.41 is the parameter-free anchor: if this
     curve's stopband lands elsewhere, the geometry or eps is wrong."""
     p_empty = _toy_run(cfg, "bulk_empty", None, "bulk_src", "bulk_out")
     p_bulk = _toy_run(cfg, "bulk", None, "bulk_src", "bulk_out")

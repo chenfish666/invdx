@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-"""第二課主線:第一個伴隨梯度 —— 在教授的光子晶體 90° 彎上修復缺陷。
+"""第二課主線:第一個伴隨梯度 —— 在文獻經典的光子晶體 90° 彎基準上修復缺陷。
 
 劇本:
-  1. 拿 phc_bend 的彎,打掉論文裡傷害最大的 Layer-I 缺陷柱(透射重傷)
+  1. 拿 phc_bend 的彎,打掉基準結構裡傷害最大的 Layer-I 缺陷柱(透射重傷)
   2. 在缺陷周圍畫一個 2a x 2a 的設計區,材料變成連續參數
      eps = 1 + (eps_rod - 1) * sigmoid(theta)
   3. jax.grad 穿過整段 FDTD 時間演化,一次拿到設計區每個格點的梯度
@@ -34,7 +34,7 @@ from invdx.problems import phc_bend
 from invdx.toy import fdtd2d, fdtd2d_jax
 from invdx import runio
 
-DEFECT = (1, 0)                     # 論文 Layer-I 水平缺陷(傷害最大)
+DEFECT = (1, 0)                     # 基準結構 Layer-I 水平缺陷(傷害最大)
 FSTARS = (0.31, 0.34, 0.37)         # 這個尺寸的能隙內三個頻率
 
 
@@ -107,7 +107,7 @@ def main():
     T_intact = float(mean_T(jnp.asarray(eps_intact)))
     print(f"[base] 完好的彎  mean T = {T_intact:.3f}")
     print(f"[base] 受損的彎  mean T = {T_damaged:.3f}   "
-          f"(缺陷 {DEFECT},論文 Layer-I)")
+          f"(缺陷 {DEFECT},基準結構 Layer-I)")
 
     # ---- 梯度驗證(G2 精神:不驗證的梯度不上桌)----
     t0 = time.time()

@@ -10,7 +10,7 @@ Growth roadmap:
     M-toy-1  numpy 2D TM Yee + first-order Mur boundaries      (done: fdtd2d)
     M-toy-1b dielectrics (eps in the E update), carrier-modulated pulses,
              line probes + spectral flux — enough for real spectroscopy
-             (done: drives problems/phc_bend, the lab-lineage benchmark)
+             (done: drives problems/phc_bend, the literature benchmark)
     M-toy-2  JAX port — DONE: fdtd2d_jax, bit-equivalent to numpy (9e-16),
              same API, runs unmodified on GPU; tutorial in tutorials/01
     M-toy-3  split-field PML (replace Mur)

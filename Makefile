@@ -18,7 +18,7 @@ smoke:            ## tiny forward fdtdx sim on GPU through config/cli/runio
 smoke-meep:       ## round-trip of the meep-env subprocess bridge
 	$(PY) scripts/02_smoke_meep_bridge.py
 
-phc-bend:         ## lab-lineage benchmark, default stages (toy engine, CPU)
+phc-bend:         ## literature benchmark, default stages (toy engine, CPU)
 	$(PY) scripts/06_phc_bend.py --tag make
 
 pvgc-opt:         ## M1: one inverse-design round on the pvgc coupler (~13 h, run detached)

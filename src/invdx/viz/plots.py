@@ -86,11 +86,11 @@ def plot_ce_spectrum(res, out_png, title="CE 頻譜", pdf=False):
 def plot_transmission(curves, out_png, title, ylabel="T (dB)", gap_ref=None,
                       pdf=False):
     """T(f) curves for phc_bend results. curves = [(freqs, T_dB, label)];
-    gap_ref = (f_lo, f_hi) shades the paper's band-gap window."""
+    gap_ref = (f_lo, f_hi) shades the reference band-gap window."""
     fig, ax = _ax(title, "歸一化頻率 f = a/λ", ylabel)
     if gap_ref:
         ax.axvspan(*gap_ref, color=GRID, alpha=0.6, lw=0,
-                   label=f"論文能隙 {gap_ref[0]}–{gap_ref[1]}")
+                   label=f"文獻能隙 {gap_ref[0]}–{gap_ref[1]}")
     for (f, T, label), col in zip(curves, (C1, C2, C3)):
         ax.plot(f, T, color=col, linewidth=2, label=label)
     if len(curves) > 1 or gap_ref:
