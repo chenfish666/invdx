@@ -36,3 +36,6 @@ core.*
 
 # Slurm per-job logs (run data lives in runs/)
 slurm-*.out
+
+# 實驗帳本屬私人資料（正本在 docs-private/experiments/），此路徑防誤 commit
+experiments/
