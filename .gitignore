@@ -30,12 +30,12 @@ rsoft_export/
 # 私人筆記(整理給擁有者的 ref/上游草稿),不公開
 docs-private/
 
-# Claude worktree admin
+# worktree admin dir
 .claude/
 core.*
 
 # Slurm per-job logs (run data lives in runs/)
 slurm-*.out
 
-# 實驗帳本屬私人資料（正本在 docs-private/experiments/），此路徑防誤 commit
+# 實驗帳本屬私人資料,不進 repo;此路徑保留為防誤 commit 的護欄
 experiments/

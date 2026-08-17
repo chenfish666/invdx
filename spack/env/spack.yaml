@@ -1,7 +1,7 @@
 # 需要 spack v1.2.0；bootstrap 見 ../bootstrap.sh
 spack:
   specs:
-    # 第二段：專案自帶 package repo（namespace invdx 明確指定，見 repos 區段）
+    # 專案自帶 package repo(namespace invdx 明確指定,見 repos 區段)
     - invdx.meep@1.34.0 +python +mpi +hdf5 +libctl +harminv +mpb +gsl +openmp ~single
     - "py-numpy@2:"           # 對齊 conda baseline（pymeep 1.34.0 為 numpy 2 世代）
     - py-mpi4py
@@ -14,7 +14,7 @@ spack:
     mpi:
       require: [mpich]         # 對齊 conda meep(mpich 4.3.2)，減少 G5 變因
     # swig 版本釘（曾因 meep<=1.31 與 SWIG 4.1+ 衝突而釘 @=4.0.2）已於
-    # 2026-08-17 bump 到 1.34.0 時解除，用以驗證上游修復；結果見 commit 說明。
+    # 2026-08-17 bump 到 1.34.0 時解除，用以驗證上游修復；結果見 docs/env.md「Three pits actually fallen into」第 1 條
   concretizer:
     unify: true
     reuse: false               # 乾淨譜系；日後可改 true 省時
@@ -27,6 +27,6 @@ spack:
     default:
       root: .spack-env/view
       link: all
-      link_type: hardlink      # 關鍵，見 L2.3
+      link_type: hardlink      # 關鍵:symlink 會讓 view 的 bin/python 把 sys.prefix 解回 spack 真實 prefix,見 docs/env.md
   config:
     build_jobs: 32

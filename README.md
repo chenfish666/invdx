@@ -8,7 +8,7 @@ cross-validation engine behind one config-driven, validation-gated workflow.
 - **Layer A — engines (unmodified, pinned, citable).**
   [FDTDX](https://github.com/ymahlau/fdtdx) (JAX GPU FDTD, Mahlau et al.,
   JOSS 2026, `fdtdx==0.6.2`) for design/production; [Meep](https://meep.readthedocs.io)
-  (Oskooi et al. 2010, conda env `meep`) as the cross-validation anchor,
+  (Oskooi et al. 2010, built from source via spack, `meep@1.34.0`) as the cross-validation anchor,
   reached only via a subprocess bridge (`invdx.engines.meep_bridge`).
   Upstream code is never modified. **Vendored exceptions (recorded per the
   layer's own rule):** `engines/fdtdx_fixes.py` — a `GaussianBeamSource`
@@ -43,11 +43,12 @@ the `nvidia-*-cu12` wheels CUDA ships as). `uv run <cmd>` runs inside that
 locked environment with no `activate` step; the Makefile's `PY` defaults to
 `uv run python`.
 
-Point the Meep bridge at your Meep env with `INVDX_MEEP_ENV` (a spack-built
-env is in progress, see `spack/`; until it lands, point this at an existing
-Meep install, e.g. `export INVDX_MEEP_ENV=$HOME/miniforge3/envs/meep`).
-Copy `env.sh.example` to `env.sh` (git-ignored) and edit it, or export the
-variable directly.
+The Meep side is built by spack and lives at `spack/env/.spack-env/view`,
+which is `meep_bridge.py`'s default with no environment set at all — see
+`docs/env.md` for the build and a clean-clone reproduction. `INVDX_MEEP_ENV`
+overrides it if you already have a Meep install elsewhere; copy
+`env.sh.example` to `env.sh` (git-ignored) and edit, or export the variable
+directly.
 
 The Meep side is a separate environment (pymeep isn't pip-installable; it
 ships via conda-forge/spack only) and is never imported into this one;
@@ -219,6 +220,10 @@ lists the Makefile targets that wrap the common invocations.)
 
 - `docs/phc-bend-walkthrough.md` — hands-on reproduction of the lab's PhC
   paper, one command per step (in Chinese).
+- `docs/env.md` — environment architecture (uv/spack split), reproduce-from-clone, spack primer.
+- `docs/journal.md` — append-only working log; every number cites its source.
+- `docs/RETRACTIONS.md` — conclusions this project published and later refuted.
+- `docs/tolerance.md` — design-for-tolerance method notes and reporting conventions.
 
 ## Paper toolkit
 

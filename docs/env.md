@@ -152,7 +152,7 @@ module load py-scipy py-matplotlib   # meep's Python layer imports both at
 python -c "import meep; print(meep.__version__)"   # 1.34.0
 ```
 
-The `linux-ubuntu22.04-x86_64` segment is this machine's spack arch triplet
+The `linux-ubuntu22.04-x86_64` segment is the arch triplet of the machine this tree was generated on
 (no compiler suffix, since `roots: lmod:` doesn't include the target); a
 different OS/arch will produce a different segment name, so don't hardcode
 it further than shown — `spack arch` prints the current value if needed.
@@ -365,11 +365,11 @@ project ever lands on a machine with **no sudo, no apt, and no direct
 network access to PyPI/conda-forge/spack's git remotes** — i.e. a locked-down
 environment where spack's own bootstrap (cloning `spack-packages` over git)
 and uv's wheel downloads both stop working, and something has to pin a
-toolchain from a single offline flake input instead. Not the situation here:
-this machine has both sudo and outbound network access, and Lmod/Apptainer
-both have first-class spack recipes, so one tool (spack) covers the whole
-cluster-user-space layer already provisioned here — a second package
-manager would add surface without adding capability.
+toolchain from a single offline flake input instead. Not the situation
+targeted here: the reference environment has sudo and outbound network
+access, and Lmod/Apptainer both have first-class spack recipes, so one tool
+(spack) covers the whole cluster-user-space layer already provisioned here —
+a second package manager would add surface without adding capability.
 
 **pixi** (`pixi.toml`, repo root) is a prepared fallback for the L2 Meep
 chain specifically, not installed or active. Switch to it if any of:

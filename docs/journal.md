@@ -4,6 +4,11 @@ Working log of what actually happened, in order. Numbers cite their source
 (commit, log file, or report path). Entries are appended, never rewritten;
 retractions go to `RETRACTIONS.md` instead of editing history here.
 
+Sources given as `runs/…` or `spack/env/install.log` are local run artifacts,
+not committed (see `.gitignore`): they identify which run a number came from,
+they are not links a reader can follow. Commit hashes are the citations that
+resolve inside this repository.
+
 ---
 
 ## 2026-08-17 — Environment reproducibility (L1 uv, L2 spack)
@@ -32,8 +37,8 @@ retractions go to `RETRACTIONS.md` instead of editing history here.
   `T_analytic=0.73978, T_fdtdx=0.74412, T_meep=0.74230` — fdtdx vs meep 0.24%
   (tol 10%). Clean-clone drill: fresh clone + `spack install` (1.3s, view only)
   + `make smoke-meep` → 1.29.0. Source: `runs/20260817-022058-gates/gates_report.json`.
-- Known parallel-work artifact: a full `make gates` run OOMed in G2 Part C while
-  the M1 driver work-in-progress held GPU memory on both cards (JAX
+- Known measurement artifact: a full `make gates` run OOMed in G2 Part C while
+  a concurrent development run held GPU memory on both cards (JAX
   preallocation). Not a spack issue; gates to be re-run serially on clean GPUs
   when M1 lands. Source: `runs/20260817-021820-gates/gates_report.json`.
 
@@ -42,7 +47,7 @@ retractions go to `RETRACTIONS.md` instead of editing history here.
 (commits `c243ac7` + `70d23cc`)
 
 - New differentiable path: `fdtdx.Device` over the real pvgc scene (the
-  legacy `profile_teeth` route binarizes at `pvgc.py:203` and was never
+  legacy `profile_teeth` route binarizes inside `pvgc.profile_teeth` and was never
   differentiable). FOM = jnp twin of the TE0 overlap; V3 consistency between
   the differentiable FOM and the legacy `characterize` chain on the same
   binary design: |Δ| = 2.5e-6 dB (threshold 0.05).
@@ -63,26 +68,29 @@ retractions go to `RETRACTIONS.md` instead of editing history here.
 - Iteration timings measured under CPU/GPU contention are recorded but not
   quotable as performance figures (measurement discipline).
 
-## 2026-08-17 (night) — 3b: Slurm launch; θ=10 stopped by its own safety gate
+## 2026-08-17 (night) — Slurm production launch; θ=10 stopped by its own safety gate
 
-- Slurm path validated on the local cluster: gres assigns `CUDA_VISIBLE_DEVICES`
-  0/1 correctly to concurrent jobs (no cgroup device isolation, sufficient for
-  this workload); sbatch smoke (job 150) and a scancel-mid-run requeue drill
-  (jobs 151/152) both passed — history.csv iterations 0,1,2,3 continuous
-  across the kill/resume boundary. Ledger: `experiments/` two-table records
-  (commit `e16de81`).
-- Formal θ=10 round (job 153) was stopped by the pre-run gradcheck: voxel 213
-  rel err 6.29% vs 5% tolerance, deterministic under the fixed seed. The
-  exploratory θ=0 round (job 154) passed gradcheck (1.93%) and runs overnight.
-- Root cause (GPU-probed, fresh context): **FD truncation, not an adjoint
-  defect** — residual scales as h³ (×0.126 per h-halving), Richardson
+- Slurm path validated on the local cluster: `gres` assigns
+  `CUDA_VISIBLE_DEVICES` 0/1 correctly to concurrent jobs, and the sbatch
+  script derives its run directory from the job ID with no changes. An sbatch
+  smoke run and a scancel-mid-iteration requeue drill both passed —
+  `history.csv` iterations 0,1,2,3 continuous across the kill/resume
+  boundary, no duplicate rows.
+- The formal θ=10 round was stopped by the pre-run gradcheck: voxel 213,
+  rel err 6.29% vs the 5% tolerance, deterministic under the fixed seed, so
+  it was recorded as `gradcheck_failed` rather than silently retried. The
+  exploratory θ=0 round passed gradcheck (1.93%) and ran overnight.
+- Root cause, from an h-scan on GPU: **FD truncation, not an adjoint defect**
+  — the residual scales as h³ (×0.126 per h-halving), Richardson
   extrapolation from the same runs agrees with the adjoint to 0.0106%, the
-  float32 noise floor is 200× below the observed residual, and failing voxels
-  are not low-signal. Longer runs (0.8 ps vs 0.15 ps) inflate FOM curvature
-  in design space, which is why smoke-scale checks passed. The earlier
-  "float32 cancellation" attribution for this failure mode is retracted —
-  see `RETRACTIONS.md`. Fix: two-h Richardson gradcheck + FD self-consistency
-  indicator; tolerances and signal floor unchanged.
+  float32 noise floor is 200× below the observed residual, and the failing
+  voxels are not low-signal. Longer runs (0.8 ps vs 0.15 ps) inflate FOM
+  curvature in design space, which is why smoke-scale checks passed. The
+  earlier "float32 cancellation" attribution for this failure mode is
+  retracted — see `RETRACTIONS.md`. Fix: a two-h Richardson gradcheck plus an
+  FD self-consistency indicator (`gradcheck()` in
+  `scripts/15_pvgc_optimize.py`, mirrored in `gates/g2_gradcheck.py` Part C);
+  tolerances and the signal floor are unchanged.
 
 **L2 stage two: meep 1.34.0 via project-owned spack package repo** (commit `614f57b`)
 
@@ -99,7 +107,7 @@ retractions go to `RETRACTIONS.md` instead of editing history here.
   removed and meep 1.34.0 built cleanly with swig 4.4.1 in 3m16s — upstream fix
   confirmed. Chain now: python 3.13.13, numpy 2.4.6 (conda-baseline era).
 - Acceptance: bare view import 1.34.0; 2 MPI ranks; `make smoke-meep` via
-  default path reports 1.34.0; G5 re-run fresh twice (agent on GPU 1, then an
+  default path reports 1.34.0; G5 re-run twice from scratch (once on GPU 1, then an
   independent re-run) — `T_meep=0.7423000529144463`, bit-identical to the
   1.29 result on this case; lock reproducible after `concretize --force`.
   Source: `runs/20260817-025817-gates/gates_report.json`, `spack/env/install.log`.

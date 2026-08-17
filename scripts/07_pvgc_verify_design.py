@@ -90,7 +90,7 @@ def verify(cfg, rho_binary, lams_um, corners=False, s11=False,
                           abs(ws["CE_fwd_dB"] - near["CE_dB"])}
 
     if corners:
-        # CD-variation corners (reviewer-1 data): +/-10 nm uniform edge bias
+        # CD-variation corners: +/-10 nm uniform edge bias
         out["corners"] = {}
         for name, delta in (("erode_10nm", -0.010), ("dilate_10nm", +0.010)):
             rho_c = measure.erode_dilate_1d(rho_binary, delta,

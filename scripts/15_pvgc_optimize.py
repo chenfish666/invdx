@@ -40,7 +40,7 @@ from invdx.cli import base_parser, apply_overrides, start_run
 from invdx.fab import measure
 from invdx.problems import pvgc
 
-# M1 recipe (design doc section 4); --set overrides any of them
+# M1 recipe defaults (rationale in this module's docstring); --set overrides any of them
 RECIPE = dict(spacing_um=0.020, sim_time_s=0.8e-12, theta_deg=10.0)
 DESIGN_GRID_PER_UM = 50
 

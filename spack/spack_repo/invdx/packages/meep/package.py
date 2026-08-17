@@ -2,17 +2,18 @@
 #
 # SPDX-License-Identifier: (Apache-2.0 OR MIT)
 #
-# invdx 專案自帶 package repo（namespace invdx）：整份複製 upstream
-# spack-packages 的 meep/package.py 後修改，理由見
-# ~/.claude/plans/invdx-design-infra.md 第二輪 L2.1「第二段」——
-# 不可用 class 繼承（父類 depends_on("python@:3.11") 只能收緊不能放寬）。
+# invdx project-owned copy of the upstream spack-packages meep recipe
+# (namespace: invdx). A full copy, not a subclass: spack constraints can only
+# be tightened by inheritance, so a subclass cannot widen upstream's
+# unconditional depends_on("python@:3.11").
 #
-# 本檔相對 upstream 的差異（僅三處，皆有標註 invdx: 註解）：
-#   1. 新增 version("1.34.0", ...)，url 顯式指向 GitHub release 資產
-#      （而非預設猜測的 git tag 原始封存），理由見該行註解。
-#   2. python 版本閘：@:1.31 沿用舊上限，@1.32: 放寬到 3.11-3.13
-#      （上游 NEWS 稱 1.32.0 才修 Python 3.12+ 相容）。
-#   3. py-numpy 版本閘：@1.32: 起要求 numpy 2，對齊 conda baseline。
+# Three deltas from upstream, each marked with an "invdx:" comment:
+#   1. version("1.34.0", ...) — sha256 of the git-tag source archive (the
+#      class url template); see the note on that line for why not the
+#      release-asset tarball.
+#   2. python gate: @:1.31 keeps upstream's ceiling, @1.32: widens to
+#      3.11-3.13 (upstream NEWS: 1.32.0 is where Python 3.12+ support landed).
+#   3. py-numpy gate: @1.32: requires numpy 2, matching the conda baseline.
 
 from spack_repo.builtin.build_systems.autotools import AutotoolsPackage
 

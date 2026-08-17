@@ -1,8 +1,8 @@
 #!/bin/bash
-# ece115 hardware monitor v4 — shared-server aware.
+# shared-server hardware monitor v4 — shared-server aware.
 # Facts: GPU PIDs visible in OUR namespace = ours; invisible = other
 # containers (e.g. other lab users). Alerts: zombie signature, GPU BECOMES
-# FREE (so queued Ada experiments can claim it), very-high disk, hourly HB.
+# FREE (so queued experiments can claim it), very-high disk, hourly HB.
 CSV=/root/invdx/runs/hwmon.csv
 z0=0; z1=0; a0=0; a1=0; e0=0; e1=0; hb=0; adisk=0
 f0=0; f1=0; free0=0; free1=0

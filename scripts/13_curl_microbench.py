@@ -15,7 +15,7 @@ Variants:
   V4: V3 + component-tuple state: psi as tuple of six 3D arrays, H as tuple of 3
       (no (6,N)/(3,N) stacked state arrays at all)
 
-Run: CUDA_VISIBLE_DEVICES=<idle gpu> uv run python /tmp/curl_bench.py
+Run: CUDA_VISIBLE_DEVICES=<idle gpu> uv run python scripts/13_curl_microbench.py
 """
 
 import time
