@@ -70,6 +70,34 @@ resolve inside this repository.
 - Iteration timings measured under CPU/GPU contention are recorded but not
   quotable as performance figures (measurement discipline).
 
+## 2026-08-17 — Verification chain exercised end to end
+
+Both optimization rounds were stopped deliberately part-way (θ=10 at
+iteration 25/40, θ=0 at 31/40, both still at β=64 with the binarization
+schedule unfinished) and their checkpoints finalized into designs. The point
+was to exercise the verification chain on real, full-scale designs, not to
+produce a good coupler — the quality numbers below are of a half-finished
+design and are recorded as such.
+
+Chain result on the θ=10 design: `scripts/07` re-measured it independently on
+the finer default grid across 1.26–1.36 µm, giving a ridge peak of −17.05 dB
+at 1.300 µm and a 3 dB bandwidth of 37.6 nm; reciprocity mismatch **0.14 dB**
+(S11 −3.15 dB), inside the 0.5 dB gate. The binarization gap was 2.81 dB
+(θ=0: 3.84 dB), well past the 1.0 dB figure pre-registered in
+`tolerance.md` — expected at β=64, and recorded rather than re-thresholded.
+`scripts/16` produced the sensitivity map plus the corner table: eroded
+−19.84 dB, nominal −17.53 dB, dilated −17.81 dB, i.e. this immature design is
+an order more sensitive to over-etch than to under-etch. Yield_90% = 67%
+(2/3), labeled in the output itself as an n=3 corner screen and not a
+statistical yield.
+
+What the exercise confirms: every stage runs on production-scale inputs, the
+thresholds fire when the design does not meet them, and the reports carry
+their own caveats (blank bandwidth columns when only single-wavelength
+corners were run, the n=3 disclaimer on the yield line). Sources:
+`runs/20260817-212907-pvgc-verify/results.json`,
+`runs/pvgc-opt-156/tolerance/`.
+
 ## 2026-08-17 (night) — Slurm production launch; θ=10 stopped by its own safety gate
 
 - Slurm path validated on the local cluster: `gres` assigns
