@@ -240,6 +240,10 @@ lists the Makefile targets that wrap the common invocations.)
   "clipped by sampled range = lower bound" note; wired into script 07
   together with optional `--s11` (waveguide-side back-reflection +
   reciprocity check on the final design).
+- `python -m invdx.export.handoff <run-dir> [--out <dir>]` — packages a run's
+  design and results into a tool-neutral bundle (rasterized permittivity
+  grid, design vector, CE spectrum, manifest with units/axes/checksums) for
+  cross-checking with any external solver, independent of invdx.
 
 ## Engine licenses
 
