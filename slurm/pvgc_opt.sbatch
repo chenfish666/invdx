@@ -23,6 +23,9 @@
 #   SIM_TIME    (unset -> script default 0.8e-12)
 #   BUDGET_H    (unset -> no wall-clock budget; set it a bit under -t so the
 #               job stops itself cleanly instead of being killed mid-iteration)
+#   GPU_INDEX   (unset -> use whatever Slurm exposes) pin CUDA_VISIBLE_DEVICES
+#               to one card, for shared nodes where --gres reserves a slot but
+#               does not hide the other devices
 #   EXTRA       extra flags passed through verbatim
 
 #SBATCH --job-name=pvgc-opt
@@ -59,5 +62,13 @@ fi
 [ -n "${BUDGET_H:-}" ] && args+=(--time-budget-h "$BUDGET_H")
 [ -n "${EXTRA:-}" ] && args+=(${EXTRA})
 
-echo "[sbatch] node $(hostname -s), $(nvidia-smi -L 2>/dev/null | wc -l) GPU(s)"
+# On clusters without cgroup device isolation, --gres reserves a slot but every
+# card stays visible, so a job can wander onto one another user has. GPU_INDEX
+# pins this job to one device; unset means "trust whatever Slurm exposes".
+if [ -n "${GPU_INDEX:-}" ]; then
+    export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
+fi
+
+echo "[sbatch] node $(hostname -s), $(nvidia-smi -L 2>/dev/null | wc -l) GPU(s)," \
+     "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
 srun uv run python scripts/15_pvgc_optimize.py "${args[@]}"

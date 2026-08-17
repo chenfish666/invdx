@@ -11,6 +11,7 @@ Three things get pinned here, all of them silent-corruption risks:
 """
 
 import os
+import sys
 
 import numpy as np
 import pytest
@@ -277,6 +278,35 @@ def test_run_loop_stops_on_a_converged_final_stage(tmp_path):
     assert optimize.beta_for_iter(CFG, state.iteration, 40) == 128.0
 
 
+def test_run_loop_resume_keeps_checkpointed_beta_not_recomputed(tmp_path):
+    """`--resume --iters=<iters_done>` (0 extra iterations, the finalize-only
+    shape) must not silently reinterpret the beta schedule under a smaller
+    denominator. Regression for the 2026-08-17 bug: runs/pvgc-opt-154 and
+    -156 both really stopped at beta=64 (iteration 25 of a 40-iteration
+    schedule); recomputing via beta_for_iter(cfg, 25, 26) — the old
+    behaviour — silently jumps to beta=128, the schedule's LAST stage, which
+    would bake a sharper-than-actual TanhProjection into the saved design."""
+    optax = pytest.importorskip("optax")
+
+    p = jax.numpy.zeros((4, 1, 1))
+    opt = optax.adam(0.05)
+    optimize.save_state(tmp_path, optimize.OptState(
+        p=p, opt_state=opt.init(p), iteration=25, beta=64.0))
+
+    # confirm the scenario actually reproduces the bug's arithmetic before
+    # trusting the assertion below to mean anything
+    assert optimize.beta_for_iter(CFG, 25, 26) == 128.0
+    assert optimize.beta_for_iter(CFG, 25, 40) == 64.0
+
+    def vg_fn(p, beta):
+        return jax.numpy.asarray(0.0), jax.numpy.zeros_like(p)
+
+    state = optimize.run_loop(vg_fn, p, CFG, n_iters=26, lr=0.1,
+                              run_dir=str(tmp_path), resume=True)
+    assert state.iteration == 25          # 0 extra iterations ran
+    assert state.beta == 64.0             # the checkpointed value, unchanged
+
+
 # --------------------------------------------------------------------------
 # Richardson extrapolation (scripts/15's gradcheck FD)
 # --------------------------------------------------------------------------
@@ -355,3 +385,84 @@ def test_gradcheck_richardson_agrees_with_single_h_when_fd_is_exact():
     for c in res["checks"]:
         assert c["rel_err"] < 1e-4
         assert c["fd_consistency"] < 1e-4
+
+
+# --------------------------------------------------------------------------
+# --finalize-only (scripts/15's checkpoint-recovery path)
+# --------------------------------------------------------------------------
+
+
+def test_finalize_only_writes_designs_from_checkpoint_beta_no_extra_history(
+        tmp_path, monkeypatch):
+    """`--finalize-only` must: (1) write the three finalization files using
+    the CHECKPOINTED beta (not a recomputed one — that's the same bug as
+    above, this time exercised through the CLI path), and (2) run no
+    optimizer iterations, so history.csv keeps exactly its pre-existing rows.
+
+    pvgc.calibrated_beam / make_ce_value_and_grad / rho_from_params are
+    stubbed: they front a real fdtdx simulation (GPU-gated everywhere else in
+    this repo, see src/invdx/gates/g2_gradcheck.py's REQUIRES = ("gpu",)),
+    which this CPU/no-GPU test suite never invokes. Stubbing them keeps the
+    test exercising scripts/15's control flow — not fdtdx — and lets
+    rho_from_params report which beta it was actually called with."""
+    import json
+    from dataclasses import asdict
+
+    optax = pytest.importorskip("optax")
+    from invdx import runio
+
+    mod = _load_pvgc_optimize_script()
+
+    cfg = pvgc.PVGCConfig(spacing_um=0.020)
+    cfg.design_grid_per_um = 50
+    n_vox = pvgc.n_design_voxels(cfg)
+    run_dir = str(tmp_path)
+    runio.save_json(os.path.join(run_dir, "config.json"), asdict(cfg))
+
+    csv_path = os.path.join(run_dir, mod.optimize.HISTORY_FILE)
+    for it, beta, ce in ((0, 8.0, 0.01), (1, 8.0, 0.02)):
+        runio.append_csv(csv_path, mod.optimize.HISTORY_HEADER,
+                         [it, beta, ce, -20.0, 0.0, 0.1])
+    rows_before = np.genfromtxt(csv_path, delimiter=",", names=True)
+
+    p = jax.numpy.zeros((n_vox, 1, 1))
+    opt = optax.adam(0.05)
+    mod.optimize.save_state(run_dir, mod.optimize.OptState(
+        p=p, opt_state=opt.init(p), iteration=1, beta=64.0))
+
+    seen_betas = []
+
+    def fake_rho_from_params(device, params, beta):
+        seen_betas.append(float(beta))
+        return np.full(n_vox, 1.0 if beta == 64.0 else 0.0)
+
+    def fake_make_ce_value_and_grad(cfg, p_in, num_checkpoints=20, lams=None,
+                                    **kw):
+        dev = type("Dev", (), {"name": "dev"})()
+        params0 = {"dev": np.zeros((n_vox, 1, 1))}   # main() prints its shape
+        return None, None, None, params0, dev, None
+
+    monkeypatch.setattr(mod.pvgc, "calibrated_beam",
+                        lambda cfg, seed=0: (1.0, 1.0, 0.0))
+    monkeypatch.setattr(mod.pvgc, "make_ce_value_and_grad",
+                        fake_make_ce_value_and_grad)
+    monkeypatch.setattr(mod.pvgc, "rho_from_params", fake_rho_from_params)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["scripts/15_pvgc_optimize.py", "--resume", run_dir,
+         "--finalize-only", "--no-final-check"])
+
+    assert mod.main() == 0
+
+    assert seen_betas == [64.0]           # not beta_for_iter(cfg, 1, 2)=16.0
+
+    cont = np.load(os.path.join(run_dir, "design_rho_cont.npy"))
+    binr = np.load(os.path.join(run_dir, "design_rho.npy"))
+    assert (cont == 1.0).all() and (binr == 1.0).all()
+    assert os.path.exists(os.path.join(run_dir, "results.json"))
+    with open(os.path.join(run_dir, "results.json")) as f:
+        res = json.load(f)
+    assert res["iters_done"] == 2
+
+    rows_after = np.genfromtxt(csv_path, delimiter=",", names=True)
+    assert len(rows_after) == len(rows_before) == 2

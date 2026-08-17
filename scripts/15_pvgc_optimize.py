@@ -255,6 +255,12 @@ def main():
                         "abort if it deviates by more than 5%%")
     p.add_argument("--resume", default=None, metavar="RUNDIR",
                    help="continue the optimization in an existing run dir")
+    p.add_argument("--finalize-only", action="store_true",
+                   help="run no optimizer iterations: load the checkpoint's "
+                        "state (its true on-disk beta, not a recomputed one) "
+                        "and just redo the finalization tail (design_rho*.npy, "
+                        "results.json). Requires --resume; recovers a design "
+                        "from an interrupted run without perturbing it.")
     p.add_argument("--run-dir", default=None, metavar="DIR",
                    help="use this exact run dir instead of a timestamped one "
                         "(requeue-safe batch jobs)")
@@ -306,33 +312,41 @@ def main():
     p0 = rho0.reshape(n_vox, 1, 1)
 
     gc_res = None
-    if args.gradcheck:
-        gc_res = gradcheck(vg_fn, value_fn, p0,
-                           optimize.beta_for_iter(cfg, 0, args.iters),
-                           seed=cfg.seed)
-        if gc_res["worst_rel_err"] > GRADCHECK_TOL:
-            runio.save_json(os.path.join(d, "results.json"),
-                            {"gradcheck": gc_res, "aborted": "gradcheck"})
-            raise SystemExit(
-                f"[gradcheck] FAIL: worst rel err "
-                f"{gc_res['worst_rel_err']:.2%} > {GRADCHECK_TOL:.0%} — the "
-                f"adjoint is not trustworthy, do not optimize (check "
-                f"spacing_um vs design_grid_per_um first)")
-        print(f"[gradcheck] PASS (worst {gc_res['worst_rel_err']:.2%} < "
-              f"{GRADCHECK_TOL:.0%})")
+    if args.finalize_only:
+        if not args.resume:
+            raise SystemExit("--finalize-only requires --resume RUNDIR")
+        state = optimize.load_state(d)
+        state.stop_reason = "finalize-only"
+        print(f"[opt] finalize-only: using checkpointed iteration "
+              f"{state.iteration} beta={state.beta} (no iterations run)")
+    else:
+        if args.gradcheck:
+            gc_res = gradcheck(vg_fn, value_fn, p0,
+                               optimize.beta_for_iter(cfg, 0, args.iters),
+                               seed=cfg.seed)
+            if gc_res["worst_rel_err"] > GRADCHECK_TOL:
+                runio.save_json(os.path.join(d, "results.json"),
+                                {"gradcheck": gc_res, "aborted": "gradcheck"})
+                raise SystemExit(
+                    f"[gradcheck] FAIL: worst rel err "
+                    f"{gc_res['worst_rel_err']:.2%} > {GRADCHECK_TOL:.0%} — the "
+                    f"adjoint is not trustworthy, do not optimize (check "
+                    f"spacing_um vs design_grid_per_um first)")
+            print(f"[gradcheck] PASS (worst {gc_res['worst_rel_err']:.2%} < "
+                  f"{GRADCHECK_TOL:.0%})")
 
-    # ---- the loop ----
-    def on_iter(row):
-        print(f"[opt] iter {row['iter']:3d}  beta {row['beta']:5.0f}  "
-              f"CE {row['CE_dB']:7.3f} dB  |g| {row['grad_norm']:.3e}  "
-              f"{row['wall_s']:.0f}s", flush=True)
+        # ---- the loop ----
+        def on_iter(row):
+            print(f"[opt] iter {row['iter']:3d}  beta {row['beta']:5.0f}  "
+                  f"CE {row['CE_dB']:7.3f} dB  |g| {row['grad_norm']:.3e}  "
+                  f"{row['wall_s']:.0f}s", flush=True)
 
-    state = optimize.run_loop(
-        vg_fn, p0, cfg, n_iters=args.iters, lr=args.lr, run_dir=d,
-        resume=bool(args.resume), on_iter=on_iter,
-        time_budget_h=args.time_budget_h)
-    print(f"[opt] stopped after iteration {state.iteration} "
-          f"({state.stop_reason})")
+        state = optimize.run_loop(
+            vg_fn, p0, cfg, n_iters=args.iters, lr=args.lr, run_dir=d,
+            resume=bool(args.resume), on_iter=on_iter,
+            time_budget_h=args.time_budget_h)
+        print(f"[opt] stopped after iteration {state.iteration} "
+              f"({state.stop_reason})")
 
     # ---- designs on disk (design_rho.npy is what script 07 reads) ----
     rho_cont = pvgc.rho_from_params(device, state.p, state.beta)

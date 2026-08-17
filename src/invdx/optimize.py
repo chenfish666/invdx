@@ -132,11 +132,19 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
     _, unravel = ravel_pytree(opt_state)
 
     it0 = 0
+    beta0 = beta_for_iter(cfg, 0, n_iters)
     if resume:
         prev = load_state(run_dir, unravel=unravel)
         p = jnp.asarray(prev.p, dtype=jnp.float32)
         opt_state = prev.opt_state
         it0 = prev.iteration + 1
+        # the checkpointed beta is ground truth for the schedule stage
+        # actually used to produce `prev.p` — recomputing it from
+        # beta_for_iter(cfg, iteration, n_iters) is wrong whenever n_iters
+        # differs from the run that wrote the checkpoint (e.g. --resume
+        # --iters=<iters_done> for a finalize-only resume), because it
+        # rescales the schedule denominator and silently jumps stages.
+        beta0 = prev.beta
 
     csv_path = os.path.join(run_dir, HISTORY_FILE)
     beta_final = beta_for_iter(cfg, n_iters - 1, n_iters)
@@ -144,8 +152,7 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
     t_start = time.time()
 
     state = OptState(p=p, opt_state=opt_state, iteration=it0 - 1,
-                     beta=beta_for_iter(cfg, max(it0 - 1, 0), n_iters),
-                     stop_reason="iters")
+                     beta=beta0, stop_reason="iters")
     prev_ce, stall, last_wall = None, 0, 0.0
 
     for it in range(it0, n_iters):

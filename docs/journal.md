@@ -91,12 +91,23 @@ an order more sensitive to over-etch than to under-etch. Yield_90% = 67%
 (2/3), labeled in the output itself as an n=3 corner screen and not a
 statistical yield.
 
+The same chain on the θ=0 design: V5 agreement 0.001 dB, grid convergence
+0.52 dB with the ridge not moving at all, reciprocity 0.06 dB, and a
+corner screen where all three corners clear the yield line — while its
+binarization gap (3.84 dB) misses the pre-registered figure just as the
+θ=10 one does. Both designs also violate the 130 nm minimum-feature rule
+they were filtered for (θ=10: 60 nm minimum solid; θ=0: 100 nm minimum
+void), which the tolerance report prints as a measurement rather than a
+pass/fail — single-field projection at η=0.5 carries no length-scale
+guarantee, so the violation is real and belongs to the unfinished
+binarization, not to the filter radius.
+
 What the exercise confirms: every stage runs on production-scale inputs, the
 thresholds fire when the design does not meet them, and the reports carry
 their own caveats (blank bandwidth columns when only single-wavelength
 corners were run, the n=3 disclaimer on the yield line). Sources:
 `runs/20260817-212907-pvgc-verify/results.json`,
-`runs/pvgc-opt-156/tolerance/`.
+`runs/pvgc-opt-156/tolerance/`, `runs/pvgc-opt-154/tolerance/`.
 
 ## 2026-08-17 (night) — Slurm production launch; θ=10 stopped by its own safety gate
 
@@ -141,3 +152,33 @@ corners were run, the n=3 disclaimer on the yield line). Sources:
   independent re-run) — `T_meep=0.7423000529144463`, bit-identical to the
   1.29 result on this case; lock reproducible after `concretize --force`.
   Source: `runs/20260817-025817-gates/gates_report.json`, `spack/env/install.log`.
+
+## 2026-08-17 — Bug: resume recomputed beta instead of reading the checkpoint
+
+Recovering the design from the two deliberately-stopped rounds
+(`runs/pvgc-opt-154`, `runs/pvgc-opt-156`, both real on-disk beta=64)
+surfaced a resume bug: `run_loop`'s pre-loop `state.beta` was
+`beta_for_iter(cfg, iteration, n_iters)` — recomputed from whatever
+`n_iters` the resuming invocation passed, not read from `opt_state.npz`. The
+natural way to finalize a killed run, `scripts/15 --resume <dir> --iters
+<iters_done>` (0 extra iterations, just wanting to write the final design
+out), shrinks the schedule denominator and silently jumps a stage: both 154
+and 156 recomputed beta=128 instead of the true beta=64, which would have
+baked a sharper-than-actual TanhProjection into
+`design_rho.npy`/`design_rho_cont.npy`. Worked around at the time with a
+throwaway script (`scripts/_finalize_from_checkpoint.py`, not committed)
+that read `state.beta` off disk directly instead of going through
+`--resume`.
+
+Fix: `run_loop` now seeds `state.beta` from the checkpoint's own `beta`
+field on resume, and only from `beta_for_iter` on a fresh start; the
+schedule still advances normally as new iterations run, since each
+iteration inside the loop keeps recomputing `beta` from the current
+`it`/`n_iters` regardless. Added `scripts/15_pvgc_optimize.py
+--finalize-only`, which loads a checkpoint and reruns the finalization tail
+(`design_rho*.npy`, `results.json`) with zero optimizer iterations — the
+throwaway script's functionality, promoted to a real flag, after which the
+throwaway script was deleted. Verified against the real runs:
+`--finalize-only` on `pvgc-opt-156` reproduced the throwaway script's
+`design_rho.npy` byte-for-byte (sha256 match). Regression tests in
+`tests/test_pvgc_optimize.py`.
