@@ -6,7 +6,7 @@ for the project overview.
 ## Tutorials
 
 - [`phc-bend-walkthrough.md`](phc-bend-walkthrough.md) — hands-on, one-command-per-step
-  reproduction of the lab's PhC 90° bend paper on both engines (in Chinese).
+  reproduction of the classic PhC 90° bend benchmark on both engines (in Chinese).
 
 ## Environment & reproduction
 

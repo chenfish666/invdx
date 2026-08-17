@@ -7,7 +7,7 @@
 
 ```
 [base] 完好的彎  mean T = 0.972
-[base] 受損的彎  mean T = 0.613   (缺陷 (1, 0),論文 Layer-I)
+[base] 受損的彎  mean T = 0.613   (缺陷 (1, 0),Layer-I)
 [adjoint] 一次反向傳播 = 設計區全部 400 個參數的梯度  (0.5s,含編譯)
 [gradcheck] pixel (17,12): adjoint -3.668794e-07  FD -3.668793e-07  rel err 1.61e-07
 [gradcheck] pixel (10, 5): adjoint +5.088147e-08  FD +5.088152e-08  rel err 9.79e-07

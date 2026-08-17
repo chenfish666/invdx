@@ -44,7 +44,7 @@ details: [`docs/env.md`](docs/env.md).
 uv sync --extra gpu --extra dev
 make test       # pure-python unit tests (~10 s)
 make gates      # all six validation gates, needs GPU (~3 min)
-make phc-bend   # lab-lineage PhC benchmark, toy engine, CPU (~2 min)
+make phc-bend   # standard PhC-waveguide benchmark, toy engine, CPU (~2 min)
 ```
 
 Every script runs through `cli.start_run`: each invocation writes
@@ -172,9 +172,11 @@ Implementation details, the gradcheck story, and checkpoint/resume semantics:
   parallelism for the two independent runs of a 3D measurement (1.97×,
   bit-identical); inverse design in `scripts/15` (see above). Scripts
   03–05, 07, 15.
-- **`phc_bend`** — PhC 90° bend from the lab's own paper (square lattice,
-  a=1 µm, R=0.225a, ε=10): Γ-X stopband 0.27–0.41 covering the paper's full
-  gap 0.29–0.41, in-gap bend transmission T≈0.85–1.1, paper's point-defect
+- **`phc_bend`** — a standard benchmark in the photonic-crystal waveguide
+  literature, the 90° bend in a square-lattice rod array (a=1 µm, R=0.225a,
+  ε=10), in the spirit of Mekis et al.'s high-transmission PhC bend (Phys.
+  Rev. Lett. 77, 3787, 1996): Γ-X stopband 0.27–0.41 covering the target gap
+  0.29–0.41, in-gap bend transmission T≈0.85–1.1, the textbook point-defect
   conclusion reproduced (horizontal/vertical ≫ slant) — on the toy engine,
   cross-checked against Meep. Hands-on tutorial:
   `docs/phc-bend-walkthrough.md`. Script 06.
@@ -219,7 +221,7 @@ bookkeeping.
   artifacts: always re-renderable from the run dir alone. `--pdf` adds
   vector output for LaTeX.
 - `python -m invdx.report <run-dir> [...]` — machine-generated Markdown table
-  of the paper numbers (peak CE, 3 dB bandwidth, linewidth vs rule, corner
+  of the reportable numbers (peak CE, 3 dB bandwidth, linewidth vs rule, corner
   peaks, S11/reciprocity); several run dirs at once give the
   efficiency/linewidth/robustness comparison table directly.
 - `pvgc.bandwidth_3db` — interpolated 3 dB bandwidth with an honest
@@ -253,9 +255,9 @@ engines themselves; see Engine licenses above for how each is used here.
 - PreFab process-prediction integration (2D patterns only; cloud token).
 - Robust three-field optimization for the problem modules; ProcessSpec-driven
   design-rule import.
-- More lab-lineage benchmarks (periodically segmented waveguides from prior
-  lab theses, and the shift-or-shrink bent waveguide [Liao & Lu, JMOe 2019]
-  as an inverse-design comparison target).
+- More classic PhC-waveguide benchmarks (periodically segmented waveguides,
+  and the shift-or-shrink bent waveguide [Liao & Lu, JMOe 2019] as an
+  inverse-design comparison target).
 - `toy/` milestones: JAX port → PML → adjoint via `jax.grad` → registered as a
   third gradient reference in the gradcheck/cross-engine gates.
 
