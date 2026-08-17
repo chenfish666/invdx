@@ -212,6 +212,7 @@ sbatch -p <partition> -t 14:00:00 slurm/pvgc_opt.sbatch          # requeue-safe
 | `06_phc_bend.py` | PhC bend benchmark, stage by stage (`--stage eps\|gap\|bend\|meep\|compare\|defect`) |
 | `07_pvgc_verify_design.py` | independent-engine verification of a pvgc design run (linewidth + CE spectrum + CD corners) |
 | `15_pvgc_optimize.py` | PVGC inverse design: adjoint optimization of the grating profile (`--gradcheck`, `--resume`) |
+| `17_generate_dataset.py` | batch forward-simulation dataset generation (`--kind uniform-grating\|random-rho`, npz shards + manifest, resumable) |
 
 (08–14 are the toy-engine lessons and the performance benchmarks; `make help`
 lists the Makefile targets that wrap the common invocations.)
