@@ -1,78 +1,75 @@
 # invdx — photonic inverse-design toolbox
 
-Personal research toolbox combining a fast GPU engine with an authoritative
-cross-validation engine behind one config-driven, validation-gated workflow.
+A fast GPU FDTD engine cross-validated against an independent reference
+engine, behind one config-driven, validation-gated workflow.
 
-## Three-layer architecture
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 
-- **Layer A — engines (unmodified, pinned, citable).**
-  [FDTDX](https://github.com/ymahlau/fdtdx) (JAX GPU FDTD, Mahlau et al.,
-  JOSS 2026, `fdtdx==0.6.2`) for design/production; [Meep](https://meep.readthedocs.io)
-  (Oskooi et al. 2010, built from source via spack, `meep@1.34.0`) as the cross-validation anchor,
-  reached only via a subprocess bridge (`invdx.engines.meep_bridge`).
-  Upstream code is never modified. **Vendored exceptions (recorded per the
-  layer's own rule):** `engines/fdtdx_fixes.py` — a `GaussianBeamSource`
-  subclass overriding one method of the released `GaussianPlaneSource`,
-  whose profile builder NaNs on rectangular source planes (documented in
-  the module docstring).
-- **Layer B — methodology (this package's identity).**
-  Config + `--set` override + run-directory snapshots (`config.py`, `cli.py`,
-  `runio.py`); the validation-gate framework (`gates/`); fabrication-robustness
-  utilities (`fab/`: conic filter, tanh projection, linewidth measurement,
-  CD-corner erosion/dilation); mode-overlap with an explicit power-convention
-  contract (`modes.py`); cross-engine convention alignment (`engines/conventions.py`);
-  GDS export (`export/gds.py`). Ported/adapted from the predecessor PVGC study (to be published).
-- **Layer C — learning core (`toy/`).**
-  A minimal, self-written 2D FDTD kept deliberately independent of fdtdx:
-  a vehicle for learning Yee/PML/adjoint internals, and a third independent
-  implementation used as a physics cross-reference. Current state
-  (M-toy-1b): dielectrics, carrier-modulated pulses, line probes + spectral
-  flux — real spectroscopy, drives the `phc_bend` benchmark. Roadmap in
-  `toy/__init__.py`.
+## Table of contents
 
-## Environment
+- [What is invdx](#what-is-invdx)
+- [Quickstart](#quickstart)
+- [Workflow](#workflow)
+- [Validation gates](#validation-gates--all-six-real-zero-skips)
+- [Measured performance doctrine](#measured-performance-doctrine-2026-08-turing-class-gpus)
+- [Hard-won guardrails](#hard-won-guardrails-encoded-in-enginesconventionspy)
+- [Inverse design (M1)](#inverse-design-m1-the-pvgc-coupler)
+- [Problems](#problems-srcinvdxproblems)
+- [Scripts](#scripts)
+- [Honest record](#honest-record)
+- [Paper toolkit](#paper-toolkit)
+- [Engine licenses](#engine-licenses)
+- [Citing](#citing)
+- [Extension points](#extension-points-deliberately-not-built-yet)
+- [Docs](#docs)
 
-```bash
-uv sync --extra gpu --extra dev
-```
+## What is invdx
 
-`uv` owns the Python/GPU layer end to end: `.python-version` pins CPython
-3.12, `pyproject.toml` pins the GPU stack (`jax[cuda12]==0.11.0`,
-`fdtdx==0.6.2`), and `uv.lock` pins every transitive dependency (including
-the `nvidia-*-cu12` wheels CUDA ships as). `uv run <cmd>` runs inside that
-locked environment with no `activate` step; the Makefile's `PY` defaults to
-`uv run python`.
-
-The Meep side is built by spack and lives at `spack/env/.spack-env/view`,
-which is `meep_bridge.py`'s default with no environment set at all — see
-`docs/env.md` for the build and a clean-clone reproduction. `INVDX_MEEP_ENV`
-overrides it if you already have a Meep install elsewhere; copy
-`env.sh.example` to `env.sh` (git-ignored) and edit, or export the variable
-directly.
-
-The Meep side is a separate environment (pymeep isn't pip-installable; it
-ships via conda-forge/spack only) and is never imported into this one;
-`engines/meep_bridge.py` spawns
-`mpirun -np N <meep-env-python> engines/meep_worker.py <jobdir>` and exchanges
-`.npy`/`.json` files. The worker imports only numpy-pure invdx modules.
-
-Note the API trap: the PyPI `fdtdx==0.6.2` and a dev checkout that also
-calls itself 0.6.2 differ (the release configures via
-`SimulationConfig(resolution=<meters>)`; dev-only names like `UniformGrid`
-don't exist here). The G1 gate pins the released API surface.
+invdx combines a fast GPU engine with an independent, authoritative
+cross-validation engine behind one config-driven, validation-gated
+methodology layer. Three layers, each with one job: unmodified pinned
+engines ([FDTDX](https://github.com/ymahlau/fdtdx) for design, Meep as the
+cross-validation anchor, reached only through a subprocess bridge); a
+methodology layer that is this project's own identity (run-directory
+provenance, a six-gate validation framework, fabrication-robustness
+utilities, explicit cross-engine convention alignment); and a small,
+self-written 2D FDTD kept deliberately independent of both, used to learn —
+and independently check — the physics. Full architecture and environment
+details: [`docs/env.md`](docs/env.md).
 
 ## Quickstart
 
 ```bash
+uv sync --extra gpu --extra dev
 make test       # pure-python unit tests (~10 s)
 make gates      # all six validation gates, needs GPU (~3 min)
 make phc-bend   # lab-lineage PhC benchmark, toy engine, CPU (~2 min)
 ```
 
-Every script goes through `cli.start_run`: each invocation writes
-`runs/<timestamp>-<name>[-tag]/` with `config.json` (including your `--set`
-overrides), `cmdline.txt` and `env.txt` — any figure is reconstructible
+Every script runs through `cli.start_run`: each invocation writes
+`runs/<timestamp>-<name>[-tag]/` with `config.json` (including any `--set`
+overrides), `cmdline.txt` and `env.txt`, so any figure is reconstructible
 months later. Unknown `--set` keys are rejected, not ignored.
+
+## Workflow
+
+```mermaid
+flowchart TD
+    Config["config.py"] --> Overrides["--set overrides"]
+    Overrides --> RunDir["cli.start_run (run dir)"]
+    RunDir --> Script{"optimize or measure script"}
+    Script --> Gates["gates, in order:<br/>G0 unit, G1 api, G2 gradcheck,<br/>G3 physics, G4 reciprocity,<br/>G5 cross-engine (Meep)"]
+
+    Gates -.->|"any gate fails"| Stop["stop the line"]
+
+    Gates --> Verify["scripts/07 independent re-verify"]
+    Verify --> Viz["viz"]
+    Verify --> Report["report"]
+    Verify --> Export["export.handoff"]
+
+    style Stop fill:#e05555,stroke:#900,color:#fff
+```
 
 Long jobs are launched detached (SSH-disconnect safe):
 `setsid nohup <cmd> > runs/<log> 2>&1 &`.
@@ -94,16 +91,16 @@ gate assumes everything before it. Runner: `gates/runner.py`; machine-readable
 
 Treat gate failures as stop-the-line events.
 
-## Measured performance doctrine (2026-08, this fleet)
+## Measured performance doctrine (2026-08, Turing-class GPUs)
 
-The performance work here follows the discipline the author picked up
-competing in HPC competitions: measure before believing, microbenchmark
-before surgery, and record dead ends so nobody re-walks them. Upstream
-engines are excellent physics codes; these notes are about squeezing THIS
-fleet's hardware, and anything generally useful gets offered upstream.
+The performance work here follows a simple discipline: measure before
+believing, microbenchmark before surgery, and record dead ends so nobody
+re-walks them. Upstream engines are excellent physics codes; these notes are
+about squeezing a specific machine's hardware, and anything generally useful gets
+offered upstream.
 
 - Meep MPI rank counts: **fewer beats more** — FDTD is memory-bandwidth
-  bound. Measured on the dev fleet: 16-core Zen4 peaks at np=8 (np=16 is
+  bound. Measured here: 16-core Zen4 peaks at np=8 (np=16 is
   26-35% slower, np=32/SMT is 4x slower); dual-socket Xeon peaks at np=16
   with NUMA binding (np=64/full SMT is 5x slower). Sweep YOUR machine with
   `scripts/12_cpu_tuning.py` before trusting any default.
@@ -132,6 +129,38 @@ fleet's hardware, and anything generally useful gets offered upstream.
    moves ~2.4 nm per nm of tooth width — 20 dB apart at a fixed wavelength
    while the ridge peaks agree.
 
+## Inverse design (M1: the PVGC coupler)
+
+A single `fdtdx.Device` over the design window (one voxel per design pixel,
+conic filter → tanh projection) plus a jnp twin of the CE chain lets one
+backward pass reach all 500 design variables — the differentiable
+counterpart to the run-length-encoded, non-differentiable `profile_teeth`
+route used for measurement.
+
+```bash
+uv run python scripts/15_pvgc_optimize.py --tag m1 --gradcheck   # ~13 h, 1 GPU
+uv run python scripts/15_pvgc_optimize.py --resume runs/<dir>    # after a kill
+sbatch -p <partition> -t 14:00:00 slurm/pvgc_opt.sbatch          # requeue-safe
+```
+
+```mermaid
+flowchart TD
+    Start{"init or resume<br/>opt_state.npz"}
+    Start --> Forward["forward: fdtdx.Device"]
+    Forward --> Grad["gradcheck: Richardson two-point h<br/>once, upfront only"]
+    Grad --> Backward["backward: checkpointed"]
+    Backward --> Write["atomic write:<br/>opt_state.npz + history.csv"]
+    Write --> Forward
+
+    Backward -.->|"Slurm requeue / SIGTERM"| Kill["job interrupted"]
+    Kill -.->|"--resume"| Start
+
+    Write -.->|"outside the loop"| Verify["scripts/07: independent re-measure<br/>optimizer readout is not final"]
+```
+
+Implementation details, the gradcheck story, and checkpoint/resume semantics:
+[`docs/m1-optimize.md`](docs/m1-optimize.md).
+
 ## Problems (`src/invdx/problems/`)
 
 - **`pvgc`** — O-band perfectly-vertical grating coupler (iSiPP50G rules) on
@@ -141,7 +170,7 @@ fleet's hardware, and anything generally useful gets offered upstream.
   cross-validated three ways against the pvgc/Meep reference (−8.8…−10.1 dB
   consistent); 3D ridge matches quasi-2D at W=10 µm; dual-GPU task
   parallelism for the two independent runs of a 3D measurement (1.97×,
-  bit-identical); inverse design in `scripts/15` (see below). Scripts
+  bit-identical); inverse design in `scripts/15` (see above). Scripts
   03–05, 07, 15.
 - **`phc_bend`** — PhC 90° bend from the lab's own paper (square lattice,
   a=1 µm, R=0.225a, ε=10): Γ-X stopband 0.27–0.41 covering the paper's full
@@ -149,55 +178,6 @@ fleet's hardware, and anything generally useful gets offered upstream.
   conclusion reproduced (horizontal/vertical ≫ slant) — on the toy engine,
   cross-checked against Meep. Hands-on tutorial:
   `docs/phc-bend-walkthrough.md`. Script 06.
-
-## Inverse design (M1: the PVGC coupler)
-
-`profile_teeth` binarizes and run-length-encodes a design into
-`UniformMaterialObject` blocks — the right thing for *measuring* a finished
-device, and a dead end for gradients. The M1 driver adds the second route: a
-single `fdtdx.Device` over the design window (one voxel per design pixel,
-`ConicFilter1D(R = min_feature)` → `TanhProjection(β)`) plus a jnp twin of the
-CE chain, so one backward pass reaches all 500 design variables.
-
-```bash
-uv run python scripts/15_pvgc_optimize.py --tag m1 --gradcheck   # ~13 h, 1 GPU
-uv run python scripts/15_pvgc_optimize.py --resume runs/<dir>    # after a kill
-sbatch -p <partition> -t 14:00:00 slurm/pvgc_opt.sbatch          # requeue-safe
-```
-
-- **The two routes must agree.** On a grid-aligned binary design both
-  describe the same device, so `ce_from_arrays` and `characterize` are
-  compared before any optimization is believed — measured 2.5×10⁻⁶ dB apart
-  (20 nm grid, θ=10°, acceptance threshold 0.05 dB). They are not
-  interchangeable in grey: the Device interpolates *inverse* permittivity
-  linearly, a block fills whole cells.
-- **Rasterizing the starting design is physics, not formatting.** Rendering
-  the uniform grating onto 20 nm design pixels by pixel-centre inclusion lets
-  the tooth width alternate 14/15 pixels; that ±3.5% duty jitter costs
-  **13 dB** at 1.31 µm (−26.4 dB vs −13.5 dB, measured). `rasterize_teeth`
-  therefore rounds edge and width the way fdtdx rounds a placed block, which
-  reproduces the cross-validated grating exactly. Conventions lesson 6 bites
-  inside a single engine too.
-- **The grid is not free.** The Device snaps its z voxel with
-  `round(t_si / spacing)`, so `spacing_um` must divide both `t_si` and the
-  design pixel — only 0.020 (design grid 50/25/10) and 0.010 (100/50/25/20)
-  are clean, and `assert_design_grid_snaps` refuses everything else rather
-  than silently optimizing a different device. The module default 0.0125
-  snaps 220 nm silicon to 225 nm.
-- **Checkpoint every iteration.** A round is ~20× a forward run per iteration
-  (`GradientConfig(method="checkpointed", num_checkpoints=20)`: 11.3 GB peak,
-  the measured sweet spot — 40 checkpoints OOMs a 24 GB card, and
-  `"reversible"` is worse here because recording PML boundaries for 20k steps
-  costs hundreds of GB). `invdx.optimize` writes `opt_state.npz` atomically
-  after every step, so `--resume` (and a requeued Slurm job) loses at most one
-  iteration.
-- **The optimizer's number is not the result.** The loop runs at 0.8 ps for
-  speed, which reads ~0.55 dB LOW against the 1.5 ps converged value — a
-  systematic offset shared by every design, so it ranks designs correctly and
-  reports them wrong. The numbers that get quoted come from re-measuring
-  `design_rho.npy` with
-  script 07 (finer grid, dense spectrum, reciprocity), which is why the run
-  directory is written in exactly the layout 07 consumes.
 
 ## Scripts
 
@@ -218,14 +198,18 @@ sbatch -p <partition> -t 14:00:00 slurm/pvgc_opt.sbatch          # requeue-safe
 (08–14 are the toy-engine lessons and the performance benchmarks; `make help`
 lists the Makefile targets that wrap the common invocations.)
 
-## Docs
+## Honest record
 
-- `docs/phc-bend-walkthrough.md` — hands-on reproduction of the lab's PhC
-  paper, one command per step (in Chinese).
-- `docs/env.md` — environment architecture (uv/spack split), reproduce-from-clone, spack primer.
-- `docs/journal.md` — append-only working log; every number cites its source.
-- `docs/RETRACTIONS.md` — conclusions this project published and later refuted.
-- `docs/tolerance.md` — design-for-tolerance method notes and reporting conventions.
+Simulation tooling makes it easy to quietly re-run until a number looks
+good, then report only that run — selective reporting is the easiest way a
+simulation project can mislead itself and everyone reading it. Two files
+exist to make that harder here:
+[`docs/journal.md`](docs/journal.md) is an append-only working log where
+every reported number cites the run, commit, or report file it came from;
+[`docs/RETRACTIONS.md`](docs/RETRACTIONS.md) is where a conclusion this
+project published and later found wrong gets written down in place, rather
+than silently edited away. Treat both as part of the results, not as
+bookkeeping.
 
 ## Paper toolkit
 
@@ -255,6 +239,14 @@ it runs as a separate program in its own environment via the subprocess
 bridge, so invdx carries no GPL obligations. RSoft FullWAVE is commercial
 and out-of-repo entirely (we only emit exchange files for it).
 
+## Citing
+
+If this toolbox is useful, cite it via [`CITATION.cff`](CITATION.cff) (or
+GitHub's "Cite this repository" button). The engines have their own
+citations: FDTDX (Mahlau et al., JOSS 2026) and Meep (Oskooi et al.,
+Computer Physics Communications 2010) — cite them directly for the physics
+engines themselves; see Engine licenses above for how each is used here.
+
 ## Extension points (deliberately not built yet)
 
 - Field-map snapshots (|E|^2 of the coupling region) from fdtdx runs.
@@ -266,3 +258,8 @@ and out-of-repo entirely (we only emit exchange files for it).
   as an inverse-design comparison target).
 - `toy/` milestones: JAX port → PML → adjoint via `jax.grad` → registered as a
   third gradient reference in the gradcheck/cross-engine gates.
+
+## Docs
+
+Full index, grouped by tutorials / environment / method notes / honest
+record: [`docs/README.md`](docs/README.md).

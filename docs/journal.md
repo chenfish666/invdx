@@ -1,3 +1,5 @@
+[← back to docs index](README.md)
+
 # Journal (append-only)
 
 Working log of what actually happened, in order. Numbers cite their source

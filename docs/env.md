@@ -1,3 +1,5 @@
+[← back to docs index](README.md)
+
 # Environment
 
 How invdx's environment is laid out, how to reproduce it from a clean clone,
@@ -15,6 +17,28 @@ Four layers, each owned by exactly one tool:
 | L1 | Python + GPU stack: `jax[cuda12]`, `fdtdx` | **uv** (`uv.lock`) | predominantly prebuilt wheels (CUDA runtime included), not source builds — uv's job |
 | L2 | C++/MPI simulation stack: Meep, MPICH, HDF5-MPI, and the cluster user-space layer (Lmod, Apptainer) | **spack** (`spack/env/spack.lock`, `spack/tools/spack.lock`) | compiled scientific software with a real dependency DAG — spack's home turf, and the common language of HPC clusters |
 | L3 | Glue between L1 and L2 | `env.sh` (from `env.sh.example`) + env vars (`INVDX_MEEP_ENV`, `INVDX_GPU`) | machine-specific values never enter git |
+
+```mermaid
+flowchart TD
+    L0["L0: GPU driver / CUDA runtime<br/>not owned by this repo"]
+    L1["L1: uv<br/>jax + fdtdx (wheels)"]
+    L2["L2: spack<br/>Meep + MPI + HDF5 (built from source)"]
+    L3["L3: env.sh / INVDX_MEEP_ENV<br/>glue layer"]
+    Bridge["meep_bridge.py<br/>subprocess call, not import"]
+
+    L0 --> L1
+    L0 --> L2
+    L3 --> L1
+    L3 --> L2
+    L3 -.-> Bridge
+```
+
+L1 and L2 are independent stacks with no direct dependency edge between them
+— neither installs, imports, or builds against the other. L3 is the only
+layer that touches both, and it does so as configuration, not code: it never
+imports Meep's Python bindings into the uv environment. The bridge to Meep
+(`engines/meep_bridge.py`) always spawns Meep as a separate `mpirun`
+subprocess and exchanges `.npy`/`.json` files — never an in-process import.
 
 One-line version of the split: **the C++/MPI simulation stack is spack's
 job, the Python/GPU stack is uv's job.** spack building `jax`+CUDA was tried

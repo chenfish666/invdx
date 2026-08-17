@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "invdx"
+abstract: >-
+  A photonic inverse-design toolbox combining a fast GPU FDTD engine (FDTDX)
+  with an independent, authoritative cross-validation engine (Meep) behind
+  one config-driven, validation-gated methodology layer. Includes a
+  six-gate validation framework, fabrication-robustness utilities, and an
+  adjoint-based inverse-design driver for a photonic grating coupler.
+type: software
+authors:
+  - name: "chenfish666"
+    email: "chenfish666@users.noreply.github.com"
+    website: "https://github.com/chenfish666"
+license: MIT
+repository-code: "https://github.com/chenfish666/invdx"
+version: "0.1.0"
+date-released: "2026-08-17"
+keywords:
+  - photonics
+  - inverse-design
+  - FDTD
+  - adjoint-optimization
+  - nanophotonics

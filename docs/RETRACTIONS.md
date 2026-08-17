@@ -1,3 +1,5 @@
+[← back to docs index](README.md)
+
 # Retractions (append-only)
 
 Conclusions this project published (in commits, docs, or reports) and later
