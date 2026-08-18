@@ -64,6 +64,12 @@ class PVGCConfig(BaseConfig):
     src_beam_y: float = 2.2         # beam source plane (pvgc y coords)
     theta_deg: float = 0.0
 
+    # ---- FOM (0.0 = legacy fiber-excited CE-only FOM) ----
+    w_s11: float = 0.0              # FOM = CE - w_s11 * R11, R11 = linear
+                                    # |S11|^2; MUST stay a float literal —
+                                    # cli._cast_like casts --set overrides to
+                                    # the default's type and int("0.3") raises
+
     # ---- Waveguide monitor / source (pvgc x coords) ----
     x_mon_wg: float = -6.5
     x_src_wg: float = -7.5
@@ -1287,6 +1293,13 @@ def make_ce_value_and_grad(cfg, p_in, num_checkpoints=20, lams=None,
     — worst-wavelength-first, at essentially zero extra cost because one run
     produces every phasor. `p_in` is then a per-wavelength sequence.
 
+    cfg.w_s11 > 0 switches to ONE wg-side excitation (Config A) per
+    evaluation: FOM = CE - w_s11*R11 with the CE term the reciprocal upward
+    Gaussian overlap and R11 the backward TE0 overlap, both normalized by
+    the TRACED forward overlap (`p_in` is then unused). vg_fn returns
+    ((loss, {"ce", "s11"}), grad) — loss = -FOM, aux holds the true CE and
+    the linear R11; value_fn still returns the scalar loss.
+
     `device` is the PLACED device (its transform chain is initialized), which
     is what `rho_from_params` needs.
     """
@@ -1301,8 +1314,10 @@ def make_ce_value_and_grad(cfg, p_in, num_checkpoints=20, lams=None,
         raise ValueError(f"p_in has {len(p_in_list)} entries but "
                          f"{len(lams)} wavelengths were requested")
 
+    use_wg = float(cfg.w_s11) > 0.0
     sim_config, objs, cons, template = build_scene_design(
         cfg, num_checkpoints=num_checkpoints,
+        excitation="wg" if use_wg else "fiber",   # "fiber" == legacy default
         lams_um=lams if len(lams) > 1 else None,
         with_transforms=with_transforms)
 
@@ -1314,6 +1329,65 @@ def make_ce_value_and_grad(cfg, p_in, num_checkpoints=20, lams=None,
 
     nz_mon = arrays.detector_states["wg_mon"]["phasor"].shape[-1]
     targets = [te0_target_on_monitor(cfg, nz_mon, lam_um=l) for l in lams]
+
+    if use_wg:
+        w = float(cfg.w_s11)
+        ph_f = arrays.detector_states["fiber_mon"]["phasor"]
+        assert ph_f.shape[-1] == 1    # z-plane: (nt, n_lam, n_comp, nx, ny, 1)
+        nf = ph_f.shape[3]
+        # fiber_mon is centered on the cell center = pvgc x=0 (see
+        # wg_side_characterize); the target is complex when tilted and the
+        # phasor time-reference varies between run configurations, so both
+        # kx signs are built and the traced CE takes the larger overlap
+        xs = (np.arange(nf) - nf / 2) * cfg.spacing_um
+        gtargets = []
+        for l in lams:
+            per = []
+            for kx in (-1.0, +1.0):
+                Eg, Hg = gaussian_mode_tilted(xs, cfg.fiber_x0, cfg.w0, l,
+                                              cfg.theta_deg, kx_sign=kx)
+                Pg = abs(0.5 * np.real(np.sum(Eg * np.conj(Hg)))
+                         * cfg.spacing_um)
+                per.append((Eg, Hg, float(Pg)))
+            gtargets.append(per)
+
+        def loss(p, beta):
+            prm = dict(params)
+            prm[device.name] = p
+            a, o, _ = fdtdx.apply_params(arrays, objects, prm, k2, beta=beta)
+            _, a = fdtdx.run_fdtd(arrays=a, objects=o, config=sim_config,
+                                  key=key, show_progress=False)   # ONE sim
+            ces, r11s = [], []
+            for k in range(len(lams)):
+                # te0_target_on_monitor returns the -x mode (Hm_back), so
+                # the injected +x forward overlap flips its sign
+                Em, Hm_back, Pm, _ = targets[k]
+                ph = a.detector_states["wg_mon"]["phasor"]
+                Ey = jnp.mean(ph[0, k, 0], axis=(0, 1))   # as ce_from_arrays
+                Hz = jnp.mean(ph[0, k, 1], axis=(0, 1))
+                p_fwd = overlap_power_directional_jnp(
+                    Ey, Hz, Em, -Hm_back, cfg.spacing_um, Pm)
+                p_back = overlap_power_directional_jnp(
+                    Ey, Hz, Em, Hm_back, cfg.spacing_um, Pm)
+                phf = a.detector_states["fiber_mon"]["phasor"]
+                Eyf = jnp.mean(phf[0, k, 0], axis=(1, 2))
+                Hxf = jnp.mean(phf[0, k, 1], axis=(1, 2))
+                pg = jnp.maximum(*[overlap_power_directional_jnp(
+                    Eyf, Hxf, Eg, Hg, cfg.spacing_um, Pg)
+                    for Eg, Hg, Pg in gtargets[k]])
+                ces.append(pg / p_fwd)     # traced P_in — NOT static p_in_list
+                r11s.append(p_back / p_fwd)
+            foms = [ces[k] - w * r11s[k] for k in range(len(lams))]
+            fom = foms[0] if len(foms) == 1 else softmin(jnp.stack(foms),
+                                                         cfg.softmin_beta)
+            ce = ces[0] if len(ces) == 1 else softmin(jnp.stack(ces),
+                                                      cfg.softmin_beta)
+            r11 = r11s[0] if len(r11s) == 1 else jnp.max(jnp.stack(r11s))
+            return -fom, {"ce": ce, "s11": r11}
+
+        return (jax.jit(jax.value_and_grad(loss, has_aux=True)), objects,
+                arrays, params, device,
+                jax.jit(lambda p, beta: loss(p, beta)[0]))  # scalar for FD
 
     def loss(p, beta):
         prm = dict(params)
