@@ -17,7 +17,10 @@ without a GPU (tests/test_pvgc_optimize.py).
 
 Sign convention: `vg_fn` returns a LOSS to minimize, and every problem in this
 repo maximizes a figure of merit, so loss = -FOM and history.csv records
-CE = -loss. Any FOM plugged in here must follow that convention.
+CE = -loss. Any FOM plugged in here must follow that convention. vg_fn may
+also return ((loss, aux_dict), grad) with the true `ce` and the linear `s11`
+in aux (a penalized FOM); the `CE` column then carries the TRUE CE and the
+`fom` column always carries -loss.
 """
 
 import os
@@ -31,7 +34,8 @@ from . import runio
 
 STATE_FILE = "opt_state.npz"
 HISTORY_FILE = "history.csv"
-HISTORY_HEADER = ["iter", "beta", "CE", "CE_dB", "grad_norm", "wall_s"]
+HISTORY_HEADER = ["iter", "beta", "CE", "CE_dB", "grad_norm", "wall_s",
+                  "s11_dB", "fom"]
 
 
 @dataclass
@@ -147,13 +151,21 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
         beta0 = prev.beta
 
     csv_path = os.path.join(run_dir, HISTORY_FILE)
+    # a resumed pre-s11 run keeps its own (6-column) header: append_csv only
+    # writes a header on file creation, so rows must match what is there
+    hdr = HISTORY_HEADER
+    if os.path.exists(csv_path):
+        with open(csv_path) as f:
+            first = f.readline().strip()
+        if first:
+            hdr = first.split(",")
     beta_final = beta_for_iter(cfg, n_iters - 1, n_iters)
     budget_s = None if time_budget_h is None else float(time_budget_h) * 3600.0
     t_start = time.time()
 
     state = OptState(p=p, opt_state=opt_state, iteration=it0 - 1,
                      beta=beta0, stop_reason="iters")
-    prev_ce, stall, last_wall = None, 0, 0.0
+    prev_fom, stall, last_wall = None, 0, 0.0
 
     for it in range(it0, n_iters):
         if budget_s is not None and \
@@ -163,19 +175,23 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
 
         beta = beta_for_iter(cfg, it, n_iters)
         t0 = time.time()
-        loss, grad = vg_fn(p, jnp.asarray(beta, dtype=jnp.float32))
-        loss = float(loss)
+        out, grad = vg_fn(p, jnp.asarray(beta, dtype=jnp.float32))
+        val, aux = out if isinstance(out, tuple) else (out, None)
+        loss = float(val)
         updates, opt_state = opt.update(grad, opt_state)
         p = jnp.clip(optax.apply_updates(p, updates), 0.0, 1.0)
         last_wall = time.time() - t0
 
-        ce = -loss
+        fom = -loss
+        ce = float(aux["ce"]) if aux else fom
         row = {"iter": it, "beta": beta, "CE": ce,
                "CE_dB": float(10 * np.log10(max(ce, 1e-15))),
                "grad_norm": float(jnp.linalg.norm(grad)),
-               "wall_s": last_wall}
-        runio.append_csv(csv_path, HISTORY_HEADER,
-                         [row[k] for k in HISTORY_HEADER])
+               "wall_s": last_wall,
+               "s11_dB": (float(10 * np.log10(max(float(aux["s11"]), 1e-15)))
+                          if aux else float("nan")),
+               "fom": fom}
+        runio.append_csv(csv_path, hdr, [row[k] for k in hdr])
         state.p, state.opt_state = p, opt_state
         state.iteration, state.beta = it, beta
         save_state(run_dir, state)
@@ -183,12 +199,12 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
         if on_iter is not None:
             on_iter(row)
 
-        if beta >= beta_final and prev_ce is not None:
-            improved = (ce - prev_ce) / max(abs(prev_ce), 1e-30)
+        if beta >= beta_final and prev_fom is not None:
+            improved = (fom - prev_fom) / max(abs(prev_fom), 1e-30)
             stall = stall + 1 if improved < stop_rel_tol else 0
             if stall >= stop_patience:
                 state.stop_reason = "converged"
                 break
-        prev_ce = ce
+        prev_fom = fom
 
     return state

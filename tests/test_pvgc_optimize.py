@@ -422,7 +422,7 @@ def test_finalize_only_writes_designs_from_checkpoint_beta_no_extra_history(
     csv_path = os.path.join(run_dir, mod.optimize.HISTORY_FILE)
     for it, beta, ce in ((0, 8.0, 0.01), (1, 8.0, 0.02)):
         runio.append_csv(csv_path, mod.optimize.HISTORY_HEADER,
-                         [it, beta, ce, -20.0, 0.0, 0.1])
+                         [it, beta, ce, -20.0, 0.0, 0.1, float("nan"), ce])
     rows_before = np.genfromtxt(csv_path, delimiter=",", names=True)
 
     p = jax.numpy.zeros((n_vox, 1, 1))
