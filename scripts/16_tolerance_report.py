@@ -87,6 +87,8 @@ def sensitivity_map(cfg, p_flat, beta, p_in_c, num_checkpoints=20):
     vg_fn, objects, arrays, params0, device, value_fn = \
         pvgc.make_ce_value_and_grad(cfg, p_in_c, num_checkpoints=num_checkpoints)
     loss, grad = vg_fn(p3, beta_j)
+    if isinstance(loss, tuple):      # w_s11 > 0: vg_fn returns (loss, aux);
+        loss = loss[0]               # "CE"/dCE below are then FOM/dFOM
     dCE_dp = -np.asarray(grad, dtype=float).reshape(-1)   # loss = -CE (module doc)
     rho = pvgc.rho_from_params(device, p3, beta)
     return {"x_um": _design_x_um(cfg, n_vox), "rho": rho, "dCE_drho": dCE_dp,

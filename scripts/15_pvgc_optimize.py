@@ -183,6 +183,8 @@ def gradcheck(vg_fn, value_fn, p, beta, seed=0):
     base = np.clip(np.asarray(p, dtype=float), GRADCHECK_H, 1 - GRADCHECK_H)
     beta_j = jnp.asarray(beta, dtype=jnp.float32)
     f0, grad = vg_fn(jnp.asarray(base, dtype=jnp.float32), beta_j)
+    if isinstance(f0, tuple):        # w_s11 > 0: vg_fn returns (loss, aux)
+        f0 = f0[0]
     g = np.asarray(grad)
 
     mag = np.abs(g).ravel()
@@ -337,8 +339,13 @@ def main():
 
         # ---- the loop ----
         def on_iter(row):
+            extra = ""
+            if not np.isnan(row["s11_dB"]):
+                extra = (f"S11 {row['s11_dB']:.2f} dB  "
+                         f"FOM {row['fom']:.4g}  ")
             print(f"[opt] iter {row['iter']:3d}  beta {row['beta']:5.0f}  "
-                  f"CE {row['CE_dB']:7.3f} dB  |g| {row['grad_norm']:.3e}  "
+                  f"CE {row['CE_dB']:7.3f} dB  {extra}"
+                  f"|g| {row['grad_norm']:.3e}  "
                   f"{row['wall_s']:.0f}s", flush=True)
 
         state = optimize.run_loop(
@@ -355,10 +362,15 @@ def main():
     np.save(os.path.join(d, "design_rho.npy"), rho_bin)
 
     hist = []
+    last_s11 = last_fom = None
     csv_path = os.path.join(d, optimize.HISTORY_FILE)
     if os.path.exists(csv_path):
         rows = np.genfromtxt(csv_path, delimiter=",", names=True)
         hist = np.atleast_1d(rows["CE"]).tolist()
+        if rows.dtype.names and "s11_dB" in rows.dtype.names:
+            v = float(np.atleast_1d(rows["s11_dB"])[-1])
+            last_s11 = None if np.isnan(v) else v
+            last_fom = float(np.atleast_1d(rows["fom"])[-1])
 
     solid, void = measure.min_feature_1d(rho_bin, cfg.design_grid_per_um)
     teeth = pvgc.profile_teeth(cfg, rho_bin)
@@ -366,6 +378,9 @@ def main():
         "history": hist,
         "CE_dB": (float(10 * np.log10(max(hist[-1], 1e-15))) if hist
                   else None),
+        "S11_dB": last_s11,
+        "fom": last_fom,
+        "w_s11": cfg.w_s11,
         "iters_done": state.iteration + 1,
         "n_iters": args.iters,
         "stop_reason": state.stop_reason,
