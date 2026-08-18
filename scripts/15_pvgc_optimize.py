@@ -410,6 +410,10 @@ def main():
         res["binarized"] = meas
         if res["CE_dB"] is not None:
             res["binarization_gap_dB"] = float(res["CE_dB"] - meas["CE_dB"])
+            if cfg.w_s11 > 0:
+                res["binarization_gap_note"] = (
+                    "continuous CE is wg-reciprocal; gap embeds ~0.06 dB "
+                    "reciprocity mismatch")
             print(f"[final] continuous {res['CE_dB']:.3f} dB -> binarized "
                   f"{meas['CE_dB']:.3f} dB "
                   f"(gap {res['binarization_gap_dB']:.3f} dB)")

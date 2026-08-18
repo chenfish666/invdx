@@ -130,8 +130,10 @@ def test_wg_path_fom_identity_and_ranges(wg):
     assert isinstance(wg.out, tuple)
     loss, aux = wg.out
     ce, r11 = float(aux["ce"]), float(aux["s11"])
-    # loss = -(ce - w*r11) by construction — exact up to float re-association
-    assert -float(loss) == pytest.approx(ce - W_S11 * r11, rel=1e-5)
+    # loss = -(ce - w*r11) by construction — exact up to float re-association;
+    # the abs term keeps this robust when ce and w*r11 nearly cancel (float32)
+    assert -float(loss) == pytest.approx(
+        ce - W_S11 * r11, rel=1e-5, abs=1e-7 * max(ce, W_S11 * r11))
     # the 0.05 ps tiny scene is transient-dominated; r11 stays a power ratio
     assert 0.0 < r11 <= 1.0
     assert 0.0 < ce < 1.0

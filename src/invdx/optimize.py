@@ -20,7 +20,10 @@ repo maximizes a figure of merit, so loss = -FOM and history.csv records
 CE = -loss. Any FOM plugged in here must follow that convention. vg_fn may
 also return ((loss, aux_dict), grad) with the true `ce` and the linear `s11`
 in aux (a penalized FOM); the `CE` column then carries the TRUE CE and the
-`fom` column always carries -loss.
+`fom` column always carries -loss. With multiple wavelengths the aux entries
+are aggregates (`ce` = softmin of the per-lambda CEs, `s11` = max of the
+per-lambda R11s) while -loss is the softmin of the per-lambda penalized FOMs,
+so `fom` == `CE` - w*`s11` holds exactly only in single-lambda runs.
 """
 
 import os
@@ -166,6 +169,7 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
     state = OptState(p=p, opt_state=opt_state, iteration=it0 - 1,
                      beta=beta0, stop_reason="iters")
     prev_fom, stall, last_wall = None, 0, 0.0
+    warned_pre_s11_hdr = False
 
     for it in range(it0, n_iters):
         if budget_s is not None and \
@@ -177,6 +181,11 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
         t0 = time.time()
         out, grad = vg_fn(p, jnp.asarray(beta, dtype=jnp.float32))
         val, aux = out if isinstance(out, tuple) else (out, None)
+        if aux and "s11_dB" not in hdr and not warned_pre_s11_hdr:
+            print(f"[run_loop] WARNING: resumed history.csv has a pre-s11 "
+                  f"{len(hdr)}-column header; s11_dB/fom are computed but "
+                  f"will NOT be recorded in history.csv")
+            warned_pre_s11_hdr = True
         loss = float(val)
         updates, opt_state = opt.update(grad, opt_state)
         p = jnp.clip(optax.apply_updates(p, updates), 0.0, 1.0)
