@@ -4,7 +4,7 @@
 The existing memory cost model has three anchors (C=10/20/28 @ 1.944M cells
 -> 5.93/11.25/15.42 GB), and exactly ONE timing point (C=20 -> ~20x forward,
 docs/m1-optimize.md), all measured at the M1 recipe (spacing_um=0.020,
-design_grid_per_um=50, sim_time_s=0.8e-12, theta_deg=10 -> ~1.944M cells,
+design_grid_per_um=50, sim_time_s=0.05e-12, theta_deg=10 -> ~1.944M cells,
 ~21k steps). The unknown that decides whether a 3D adjoint round is 8 hours
 or two weeks is the LOW-C behaviour: does C=1 cost ~20x a forward run, or
 ~100x? This script's job is that low-C time curve; the memory numbers are
@@ -99,8 +99,15 @@ CSV_FIELDS = ["C", "forward_s", "vg_s", "ratio", "peak_bytes", "bytes_limit",
 # 5.93/11.25/15.42 GB) were measured at (docs/m1-optimize.md). This script's
 # own defaults reproduce it (see make_config); anchor_comparable() below
 # checks whether a given --set-modified cfg still matches it.
+# The condition the existing anchors were ACTUALLY measured at, which is not
+# the production recipe: their forward run was 3.5 s over 1311 steps, and the
+# adjoint timings quoted beside them (C=10 -> 87.4 s, C=20 -> 69.9 s) are 25x
+# and 20x that forward. sim_time_s=0.05e-12 reproduces those ~1312 steps.
+# Matching the production recipe instead would be matching the wrong thing:
+# 16x the steps for a memory figure that does not depend on step count, and
+# timings that cannot be compared with the ones on record.
 ANCHOR_CONDITION = dict(spacing_um=0.020, design_grid_per_um=50,
-                        sim_time_s=0.8e-12, theta_deg=10.0)
+                        sim_time_s=0.05e-12, theta_deg=10.0)
 
 
 def anchor_comparable(cfg):
@@ -122,7 +129,7 @@ def anchor_comparable(cfg):
 
 def make_config(args):
     """M1-recipe defaults (spacing_um=0.020, design_grid_per_um=50,
-    sim_time_s=0.8e-12, theta_deg=10), so a bare invocation lands at the
+    sim_time_s=0.05e-12, theta_deg=10), so a bare invocation lands at the
     same ~1.944M cells / ~21k steps the existing memory anchors were
     measured at. --set overrides any of them (needed for the CPU smoke
     test, which trades comparability for a grid tiny enough for seconds)."""
@@ -308,8 +315,12 @@ def main():
                   f"vg {row['vg_s']:.4g}s  ratio {row['ratio']:.3g}  "
                   f"peak_bytes {row['peak_bytes']}", flush=True)
         rows.append(row)
-
-    write_csv(os.path.join(d, "sweep.csv"), rows)
+        # Rewrite after every point, not once at the end: a single C can run
+        # far longer than the rest of the sweep put together (a low C means a
+        # long recompute), and a sweep killed on its slowest point should
+        # still leave every point that did finish. Order the list so the rows
+        # you most need land first.
+        write_csv(os.path.join(d, "sweep.csv"), rows)
 
     cells = n_cells(cfg)
     fit = fit_bytes_per_cell(checkpoints, [r["peak_bytes"] for r in rows],

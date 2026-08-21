@@ -196,6 +196,7 @@ Implementation details, the gradcheck story, and checkpoint/resume semantics:
 | `15_pvgc_optimize.py` | PVGC inverse design: adjoint optimization of the grating profile (`--gradcheck`, `--resume`) |
 | `16_tolerance_report.py` | design-for-tolerance report on a finished optimization run: per-voxel sensitivity map + three-corner (eta_e/eta_i/eta_d) robust-design evaluation (`--lams` for a corner CE spectrum) |
 | `17_generate_dataset.py` | batch forward-simulation dataset generation (`--kind uniform-grating\|random-rho`, npz shards + manifest, resumable) |
+| `18_checkpoint_sweep.py` | checkpoint count C vs wall-clock time and memory (`sweep.csv` + `results.json`, linear bytes/cell fit, defaults reproduce the M1 memory-anchor condition) |
 
 (08–14 are the toy-engine lessons and the performance benchmarks; `make help`
 lists the Makefile targets that wrap the common invocations.)

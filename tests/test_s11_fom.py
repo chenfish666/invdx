@@ -10,7 +10,9 @@ Contracts pinned here:
     ((loss, {"ce", "s11"}), grad) with -loss == ce - w_s11*s11 exactly,
   * the wg-path gradient back-propagates through BOTH monitors (the
     fiber_mon adjoint is the open risk — gated by a finite-difference check
-    on TWO directions plus an h-refinement no-growth gate),
+    on TWO directions plus a Richardson-extrapolated FD-vs-adjoint gate; see
+    test_wg_gradient_matches_finite_difference's docstring for why this is
+    Richardson and not a raw h-refinement no-growth check),
   * run_loop records the TRUE CE, the s11_dB and the penalized fom as
     separate history.csv columns, and a resumed pre-s11 run keeps its own
     6-column layout,
@@ -43,6 +45,7 @@ from invdx import optimize, runio
 from invdx.cli import apply_overrides
 from invdx.problems import pvgc
 from invdx.problems.pvgc import PVGCConfig, n_design_voxels
+from invdx.richardson_fd import richardson_fd_check
 
 W_S11 = 0.7
 BETA = 8.0
@@ -172,13 +175,32 @@ def test_wg_gradient_matches_finite_difference(wg, p0):
     tune the tolerance.
 
     Review round-01 strengthening: TWO independent random directions (one
-    direction can hide a wrong gradient component by chance), and on the
-    first an h-refinement gate — central-difference truncation is O(h^2),
-    so halving h must never GROW the FD-vs-adjoint error. The 1.5 factor
-    plus a float32-roundoff floor (eps32 * |f| / (2*(h/2)) is the noise a
-    float32 loss injects into the h/2 quotient) keeps the gate meaningful
-    when err(h) already sits at the rounding floor; measured on this scene
-    err(0.02) = 1.3e-7 -> err(0.01) = 1.6e-8, a real ~8x contraction.
+    direction can hide a wrong gradient component by chance).
+
+    2026-08-21 gate history — READ BEFORE "fixing" a future failure here:
+    the original round-01 gate additionally required an h-refinement
+    no-growth check (halving h must never GROW the FD-vs-adjoint error,
+    since central-difference truncation is O(h^2)). That gate FAILED on an
+    RTX 6000 Ada GPU (err(h) 2.343e-07 -> err(h/2) 4.439e-07, error grew) while
+    PASSING on a Quadro RTX 6000 GPU and on CPU, same commit, same config.
+    Cross-architecture evidence ruled out a gradient bug: history.csv's
+    grad_norm was byte-for-byte identical across the two GPUs (0.24972 /
+    0.197567, matching through the next optimizer iteration too) — the
+    adjoint is not hardware-dependent. What IS hardware-dependent is the FD
+    probe: it re-evaluates the loss twice per h, and Ada's different
+    reduction order / FMA scheduling perturbs those evaluations at the
+    ~1e-7 level — exactly the scale of both err(h) and err(h/2) above. That
+    check was comparing two numbers sitting on the same float32 noise floor,
+    not a real truncation trend.
+    The fix is NOT a looser tolerance (this docstring used to say so in so
+    many words: do not tune it) — it is a better ESTIMATOR. Richardson
+    extrapolation combines FD(h) and FD(h/2) as
+    FD_R = (4*FD(h/2) - FD(h)) / 3, algebraically cancelling the leading
+    O(h^2) truncation term instead of trying to observe its sign from two
+    noisy raw quotients. FD_R vs the adjoint is what is gated below;
+    err(h)/err(h/2)/their ratio are still computed and printed but are
+    INFORMATIONAL ONLY — real signal on a Turing GPU, but not
+    architecture-stable enough to gate on.
     6 value_fn evaluations = 6 tiny sims (~20 s CPU)."""
     beta_j = jnp.asarray(BETA, dtype=jnp.float32)
     g = np.asarray(wg.grad)
@@ -201,15 +223,104 @@ def test_wg_gradient_matches_finite_difference(wg, p0):
             f"seed {seed}: directional FD {fd:.6e} vs adjoint {gdotv:.6e}"
         per_seed[seed] = (v, gdotv, fd)
 
-    v1, gdotv1, fd_h = per_seed[1]
-    fd_half, f_scale = central_fd(v1, h / 2)
-    err_h = abs(fd_h - gdotv1)
-    err_half = abs(fd_half - gdotv1)
-    floor = np.finfo(np.float32).eps * f_scale / h      # 2*(h/2) == h
-    print(f"[t4] err(h={h}) {err_h:.3e} -> err(h/2) {err_half:.3e}, "
-          f"float32 FD floor {floor:.3e}")
-    assert err_half <= 1.5 * err_h + floor, \
-        f"FD error grew under refinement: {err_h:.3e} -> {err_half:.3e}"
+    v1, gdotv1, _ = per_seed[1]
+    v1j = jnp.asarray(v1, dtype=jnp.float32)
+
+    def evaluate(sign, hh):
+        return float(wg.value_fn(p0 + sign * hh * v1j, beta_j))
+
+    rc = richardson_fd_check(evaluate, h, gdotv1)
+
+    # informational only, NOT gated (see docstring: this signal is real on
+    # Turing but sits under Ada's own FD-probe rounding noise)
+    err_h = abs(rc["fd_h"] - gdotv1)
+    err_half = abs(rc["fd_h2"] - gdotv1)
+    print(f"[t4][informational, not gated] err(h={h}) {err_h:.3e} -> "
+          f"err(h/2) {err_half:.3e} (ratio {err_half / (err_h + 1e-30):.2f}x)")
+
+    print(f"[t4] Richardson FD_R {rc['fd']:.6e} vs adjoint {gdotv1:.6e}  "
+          f"rel_err {rc['rel_err']:.2e}  fd_consistency {rc['fd_consistency']:.2e}")
+    # XCHECK_RTOL (defined below, t6) is this file's own established
+    # convention for "how tight can a cross-check be before conceptual bugs
+    # get lost in rounding noise" — reused here rather than inventing a new
+    # number. Measured on this scene: rel_err ~5e-6 (seed 1), ~2e-4 (seed 2),
+    # 4-200x inside this margin.
+    assert rc["rel_err"] < XCHECK_RTOL, \
+        (f"Richardson-extrapolated FD {rc['fd']:.6e} vs adjoint {gdotv1:.6e}: "
+         f"rel_err {rc['rel_err']:.2e} >= {XCHECK_RTOL:.0e}")
+
+
+def test_richardson_gate_negative_control_rejects_perturbed_adjoint(wg, p0):
+    """Negative control for the Richardson gate above — PLUS a companion
+    near-threshold positive control, because the two only mean something
+    together.
+
+    A gate that never fires is worse than no gate: it looks like coverage
+    while providing none (this project hit exactly this "zero-sensitivity
+    check" shape more than once during this investigation). But a negative
+    control is only valid if its perturbation is actually LARGER than the
+    gate's tolerance — corrupting the adjoint by less than XCHECK_RTOL and
+    finding the gate still passes would prove nothing about sensitivity,
+    it would just be correct behaviour. So both perturbation sizes below are
+    DERIVED from the real XCHECK_RTOL the gate above uses (read, not
+    guessed):
+      * NEG_FACTOR corrupts the adjoint by 10x XCHECK_RTOL — far enough
+        past the tolerance that "still green" can only mean the gate is
+        blind, not that the corruption was too small to matter.
+      * POS_FACTOR corrupts it by 0.3x XCHECK_RTOL — safely inside the
+        tolerance, so this direction proves the gate does NOT cry wolf on a
+        deviation smaller than its own stated threshold.
+    Both share the cached FD(h)/FD(h/2) evaluations from the true adjoint
+    (only 4 sims total for this whole test, same direction as t4's seed 1).
+    """
+    beta_j = jnp.asarray(BETA, dtype=jnp.float32)
+    g = np.asarray(wg.grad)
+    h = 0.02
+    NEG_FACTOR = 10 * XCHECK_RTOL     # >> tolerance -> must FAIL the gate
+    POS_FACTOR = 0.3 * XCHECK_RTOL    # << tolerance -> must still PASS
+
+    rng = np.random.default_rng(1)          # same direction as t4's seed 1
+    v = rng.standard_normal(g.shape)
+    v /= np.linalg.norm(v)
+    gdotv = float(np.sum(g * v))
+    vj = jnp.asarray(v, dtype=jnp.float32)
+
+    cache = {}
+
+    def evaluate(sign, hh):
+        key = (sign, hh)
+        if key not in cache:
+            cache[key] = float(wg.value_fn(p0 + sign * hh * vj, beta_j))
+        return cache[key]
+
+    rc_true = richardson_fd_check(evaluate, h, gdotv)
+    print(f"[negctl] true adjoint:            rel_err {rc_true['rel_err']:.2e}  "
+          f"gate={'PASS' if rc_true['rel_err'] < XCHECK_RTOL else 'FAIL'}")
+    assert rc_true["rel_err"] < XCHECK_RTOL, (
+        "sanity precondition failed: the unperturbed gate must pass before "
+        "either control below means anything")
+
+    corrupted_bad = gdotv * (1.0 + NEG_FACTOR)
+    rc_bad = richardson_fd_check(evaluate, h, corrupted_bad)   # cache hits
+    print(f"[negctl] adjoint*(1+{NEG_FACTOR:.1e}) [{NEG_FACTOR / XCHECK_RTOL:.0f}x "
+          f"tol]: rel_err {rc_bad['rel_err']:.2e}  "
+          f"gate={'PASS' if rc_bad['rel_err'] < XCHECK_RTOL else 'FAIL'}")
+    assert rc_bad["rel_err"] >= XCHECK_RTOL, (
+        f"NEGATIVE CONTROL FAILED TO FAIL: an adjoint corrupted {NEG_FACTOR / XCHECK_RTOL:.0f}x "
+        f"past tolerance still passes the Richardson gate (rel_err "
+        f"{rc_bad['rel_err']:.2e} < {XCHECK_RTOL:.0e}) -- the gate has no "
+        f"sensitivity, exactly the failure mode this control exists to catch")
+
+    corrupted_ok = gdotv * (1.0 + POS_FACTOR)
+    rc_ok = richardson_fd_check(evaluate, h, corrupted_ok)     # cache hits
+    print(f"[negctl] adjoint*(1+{POS_FACTOR:.1e}) [{POS_FACTOR / XCHECK_RTOL:.1f}x "
+          f"tol]: rel_err {rc_ok['rel_err']:.2e}  "
+          f"gate={'PASS' if rc_ok['rel_err'] < XCHECK_RTOL else 'FAIL'}")
+    assert rc_ok["rel_err"] < XCHECK_RTOL, (
+        f"COMPANION POSITIVE CONTROL FAILED: a deviation smaller than "
+        f"XCHECK_RTOL ({POS_FACTOR / XCHECK_RTOL:.1f}x tol) still trips the "
+        f"gate (rel_err {rc_ok['rel_err']:.2e} >= {XCHECK_RTOL:.0e}) -- the "
+        f"gate is crying wolf on a legitimately small deviation")
 
 
 # --------------------------------------------------------------------------

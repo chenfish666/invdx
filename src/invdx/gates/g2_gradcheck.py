@@ -17,6 +17,8 @@ import os
 
 import numpy as np
 
+from invdx.richardson_fd import richardson_fd_check
+
 from .runner import GateResult
 
 NAME = "gradcheck"
@@ -178,19 +180,15 @@ def _part_c_pvgc_device():
     checks, n_bad = [], 0
     for fi in flat_idx:
         idx = np.unravel_index(fi, base.shape)
-        fd_by_h = {}
-        for h in (FD_H, FD_H / 2):
-            vals = {}
-            for sign in (+1, -1):
-                pert = base.copy()
-                pert[idx] += sign * h
-                vals[sign] = float(value_fn(
-                    jnp.asarray(pert, dtype=jnp.float32), beta))
-            fd_by_h[h] = (vals[+1] - vals[-1]) / (2 * h)
-        fd_h, fd_h2 = fd_by_h[FD_H], fd_by_h[FD_H / 2]
-        fd = (4 * fd_h2 - fd_h) / 3          # Richardson extrapolation, O(h^4)
-        rel = abs(fd - g[idx]) / (abs(fd) + 1e-12)
-        fd_consistency = abs(fd_h - fd_h2) / (abs(fd) + 1e-12)
+
+        def evaluate(sign, hh, idx=idx):
+            pert = base.copy()
+            pert[idx] += sign * hh
+            return float(value_fn(jnp.asarray(pert, dtype=jnp.float32), beta))
+
+        rc = richardson_fd_check(evaluate, FD_H, g[idx])
+        fd, fd_h, fd_h2 = rc["fd"], rc["fd_h"], rc["fd_h2"]
+        rel, fd_consistency = rc["rel_err"], rc["fd_consistency"]
         n_bad += rel >= REL_TOL
         checks.append({"idx": [int(i) for i in idx],
                        "adjoint": float(g[idx]), "fd": float(fd),
