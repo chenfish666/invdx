@@ -28,9 +28,13 @@ from .filters_np import conic_filter_matrix
 class ConicFilter1D(SameShapeTypeParameterTransform):
     """Normalized conic (cone-kernel) density filter along one voxel axis.
 
-    The kernel radius sets the guaranteed length scale of the design (with
-    three-field projection at eta_e=0.75, min feature == radius; see
-    BaseConfig.filter_radius). The filter matrix is a static trace-time
+    The kernel radius would set a GUARANTEED length scale only under the
+    three-field robust formulation (optimise the eroded/nominal/dilated
+    projections together, eta_e=0.75 giving min feature == radius). This repo
+    optimises the nominal field alone, so here the radius is a heuristic and
+    nothing about the produced design's minimum feature is guaranteed -- see
+    BaseConfig.filter_radius and docs/tolerance.md, and measure the result
+    rather than assuming it. The filter matrix is a static trace-time
     constant built from the device's own voxel size.
     """
 

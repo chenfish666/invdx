@@ -210,7 +210,15 @@ def run_loop(vg_fn, p0, cfg, n_iters, lr, run_dir, resume=False, on_iter=None,
 
         if beta >= beta_final and prev_fom is not None:
             improved = (fom - prev_fom) / max(abs(prev_fom), 1e-30)
-            stall = stall + 1 if improved < stop_rel_tol else 0
+            # abs(): a plateau is a SMALL change, in either direction. Testing
+            # `improved < tol` one-sidedly also counts a FOM that is getting
+            # worse, so a diverging run used to stop and label itself
+            # "converged" -- a false claim about the optimizer's state, and
+            # these dips are real (a late-stage step has been seen to drop the
+            # FOM by 9 dB before Adam recovered). A degrading step now resets
+            # the counter and the run continues; --time-budget-h and the
+            # iteration cap remain the backstops against a genuine divergence.
+            stall = stall + 1 if abs(improved) < stop_rel_tol else 0
             if stall >= stop_patience:
                 state.stop_reason = "converged"
                 break

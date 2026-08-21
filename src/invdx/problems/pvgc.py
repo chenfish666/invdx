@@ -224,6 +224,24 @@ def _pml_cells(cfg):
     return int(round(cfg.dpml / cfg.spacing_um))
 
 
+def _require_float32_dtype(cfg):
+    """build_scene/build_scene_3d hardcode fdtdx.SimulationConfig(dtype=
+    jnp.float32); cfg.dtype is otherwise only read by
+    engines.fdtdx_engine.make_sim_config. Rather than silently ignoring a
+    cfg.dtype="float64" request, fail loudly: float64 through this fdtdx/jax
+    pipeline has never been exercised here and may error outright or merely
+    double memory/runtime with no verified accuracy gain. To add float64
+    support, thread cfg.dtype into both SimulationConfig(dtype=...) call
+    sites below and validate forward+adjoint correctness before trusting it.
+    """
+    if cfg.dtype != "float32":
+        raise NotImplementedError(
+            f"cfg.dtype={cfg.dtype!r} is not honored by build_scene/"
+            f"build_scene_3d: this path hardcodes float32 (see "
+            f"pvgc._require_float32_dtype). Only "
+            f"engines.fdtdx_engine.make_sim_config reads cfg.dtype today.")
+
+
 def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
                 excitation="fiber", with_field_map=False,
                 shallow_teeth=None):
@@ -251,6 +269,7 @@ def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
     """
     import jax.numpy as jnp
 
+    _require_float32_dtype(cfg)
     spacing = cfg.spacing_um * UM
     sim_config = fdtdx.SimulationConfig(
         time=cfg.sim_time_s,
@@ -563,6 +582,7 @@ def build_scene_3d(cfg, teeth, wg_width_um=10.0, azimuth_sign=1.0,
     import jax.numpy as jnp
     from ..engines.fdtdx_fixes import GaussianBeamSource
 
+    _require_float32_dtype(cfg)
     spacing = cfg.spacing_um * UM
     cell_y = wg_width_um + 3.0 + 2 * cfg.dpml
     sim_config = fdtdx.SimulationConfig(
@@ -1133,7 +1153,22 @@ def n_design_voxels(cfg):
 
 
 def assert_design_grid_snaps(cfg):
-    """Fail loudly when the Device cannot be placed without snapping error."""
+    """Fail loudly when the Device cannot be placed without snapping error.
+
+    design_grid_per_um is annotated `int` on the config dataclass, but a
+    dataclass annotation is not enforced at runtime -- a non-integer or
+    non-positive value would otherwise pass through silently (a negative
+    value in particular satisfies the divisibility check below by accident,
+    since it only compares magnitudes). Reject it explicitly first: a
+    non-integer or <=0 design_grid_per_um makes 1/design_grid_per_um (the
+    design pixel size) and its alignment to the simulation grid undefined.
+    """
+    g = cfg.design_grid_per_um
+    if g <= 0 or float(g) != int(g):
+        raise ValueError(
+            f"design_grid_per_um must be a positive integer (it is the "
+            f"design-pixel density in pixels/um; 1/design_grid_per_um is "
+            f"undefined otherwise) — got {g!r}.")
     for label, length in (("t_si", cfg.t_si),
                           ("design pixel", 1.0 / cfg.design_grid_per_um),
                           ("L_design", cfg.L_design)):

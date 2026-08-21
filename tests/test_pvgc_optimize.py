@@ -98,6 +98,37 @@ def test_design_grid_guard_rejects_design_grid_finer_than_the_mesh():
         pvgc.assert_design_grid_snaps(cfg)
 
 
+@pytest.mark.parametrize("bad", [-50, 0, 50.5, 50.0000001])
+def test_design_grid_guard_rejects_invalid_design_grid_per_um(bad):
+    """design_grid_per_um is annotated `int` but that is not enforced by the
+    dataclass itself — a negative value in particular used to pass the
+    divisibility check below by accident (it only compares magnitudes)."""
+    cfg = pvgc.PVGCConfig(spacing_um=0.020)
+    cfg.design_grid_per_um = bad
+    with pytest.raises(ValueError, match="design_grid_per_um"):
+        pvgc.assert_design_grid_snaps(cfg)
+
+
+# --------------------------------------------------------------------------
+# dtype: cfg.dtype is otherwise a dead parameter on this path
+# --------------------------------------------------------------------------
+
+
+def test_build_scene_rejects_non_float32_dtype():
+    """build_scene/build_scene_3d hardcode float32; a cfg.dtype override must
+    fail loudly instead of being silently ignored (only
+    engines.fdtdx_engine.make_sim_config actually reads cfg.dtype)."""
+    cfg = pvgc.PVGCConfig(spacing_um=0.020, dtype="float64")
+    with pytest.raises(NotImplementedError, match="dtype"):
+        pvgc.build_scene(cfg)
+
+
+def test_build_scene_accepts_the_default_float32_dtype():
+    cfg = pvgc.PVGCConfig(spacing_um=0.020)
+    sim_config, object_list, constraints = pvgc.build_scene(cfg)
+    assert object_list and constraints
+
+
 # --------------------------------------------------------------------------
 # jnp twin of the measurement chain
 # --------------------------------------------------------------------------
@@ -466,3 +497,35 @@ def test_finalize_only_writes_designs_from_checkpoint_beta_no_extra_history(
 
     rows_after = np.genfromtxt(csv_path, delimiter=",", names=True)
     assert len(rows_after) == len(rows_before) == 2
+
+
+def test_a_degrading_fom_is_not_reported_as_converged(tmp_path):
+    """A run whose FOM is getting worse has not converged.
+
+    The stall counter tests |relative change| < tol: a plateau is a SMALL
+    change, in either direction. A one-sided test also counted a FOM that was
+    falling, so a diverging run stopped and labelled itself "converged" -- a
+    false claim about the optimizer's state, and one real runs can trigger
+    (a late-stage step has been seen to drop the FOM by 9 dB before Adam
+    recovered).
+    """
+    pytest.importorskip("optax")
+    cfg = pvgc.PVGCConfig(spacing_um=0.020)
+    cfg.design_grid_per_um = 50
+    cfg.beta_schedule = (8.0,)          # one stage: beta_final from step 0
+
+    # run_loop takes loss = -FOM, so a RISING loss is a degrading FOM.
+    rising_loss = iter([-32.0, -16.0, -8.0, -4.0, -2.0, -1.0])
+
+    def vg_fn(p, beta):
+        return jax.numpy.asarray(next(rising_loss)), jax.numpy.zeros_like(p)
+
+    p0 = jax.numpy.full((4, 1, 1), 0.5, dtype=jax.numpy.float32)
+    state = optimize.run_loop(vg_fn, p0, cfg, n_iters=6, lr=0.05,
+                              run_dir=str(tmp_path),
+                              stop_rel_tol=0.005, stop_patience=2)
+
+    assert state.stop_reason != "converged", (
+        "a monotonically worsening FOM was reported as "
+        f"{state.stop_reason!r}")
+    assert state.iteration == 5, "the run should have used its full budget"

@@ -95,10 +95,15 @@ def _sample_random_rho(n, seed, cfg):
     `fdtdx.TanhProjection` apply inside the differentiable Device, run here
     numpy-side (fab.filters_np, the authoritative reference implementation)
     so no jax/fdtdx import is needed just to sample. The filter radius is
-    cfg.filter_radius (== cfg.min_feature), so a high projection beta yields
-    a near-binary density whose guaranteed feature size matches the same
-    fabrication rule the optimizer enforces — "manufacturable" in the same
-    sense the rest of this repo means it, not a stronger claim."""
+    cfg.filter_radius (== cfg.min_feature).  NOTE (2026-08-21 audit): the
+    previous wording here claimed the resulting feature size is "guaranteed"
+    and matches "the fabrication rule the optimizer enforces".  Both are
+    false: the length-scale guarantee requires the three-field robust
+    formulation, which this repo does not run (see Config.filter_radius), and
+    the optimizer enforces no minimum feature at all -- min_feature is only
+    MEASURED post-hoc by scripts/15 via fab.measure.min_feature_1d, and
+    docs/tolerance.md's V8 check reports linewidth without ever failing on it.
+    Samples from this dataset must not be described as manufacturable."""
     from .fab.filters_np import conic_filter_matrix, tanh_projection
     from .problems.pvgc import n_design_voxels
 

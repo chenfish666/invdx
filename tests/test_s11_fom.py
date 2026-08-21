@@ -1,4 +1,4 @@
-"""The w_s11 reflection-penalized FOM (campaign/s11-fom).
+"""The w_s11 reflection-penalized FOM.
 
 Contracts pinned here:
   * w_s11 is a float 0.0 default (cli._cast_like casts --set overrides to the
