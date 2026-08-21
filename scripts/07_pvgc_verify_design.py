@@ -49,7 +49,7 @@ def split_dual(cfg, rho_a, rho_b):
 
 
 def verify(cfg, rho_binary, lams_um, corners=False, s11=False,
-           rho2_binary=None):
+           rho2_binary=None, energy_budget=False):
     """Linewidth + CE spectrum (+ CD corners) of a binary design profile.
     With rho2_binary the design is dual-etch (layer A = rho_binary, layer
     B = rho2_binary, pvgc convention)."""
@@ -109,6 +109,14 @@ def verify(cfg, rho_binary, lams_um, corners=False, s11=False,
                 "spectrum": spec_c["spectrum"],
                 "peak": max(spec_c["spectrum"], key=lambda r: r["CE_dB"]),
             }
+
+    if energy_budget:
+        # additive field, existing keys/semantics untouched (one extra
+        # simulation, same opt-in pattern as s11/corners/field above); see
+        # pvgc.energy_budget for the five measurement judgments this codifies
+        out["energy_budget"] = pvgc.energy_budget(
+            cfg, teeth, p_in=p_in, azimuth_sign=azimuth_sign,
+            shallow_teeth=shallow)
     return out
 
 
@@ -129,6 +137,11 @@ def main():
     p.add_argument("--field", action="store_true",
                    help="also capture the coupling-region steady-state "
                         "field map at lam_c (one extra simulation)")
+    p.add_argument("--energy-budget", action="store_true",
+                   help="also compute the box-face energy budget (where "
+                        "the power went: waveguide/substrate/radiation) "
+                        "plus its conservation check, at lam_c (one extra "
+                        "simulation) — see pvgc.energy_budget")
     p.add_argument("--field-3d", action="store_true",
                    help="3D field slices (side + top view) from one full-3D "
                         "run at the 575/16 nm grid; the top view shows "
@@ -166,7 +179,7 @@ def main():
 
     lams = list(np.linspace(args.lam_lo, args.lam_hi, args.n_lam))
     res = verify(cfg, rho_binary, lams, corners=args.corners, s11=args.s11,
-                 rho2_binary=rho2_binary)
+                 rho2_binary=rho2_binary, energy_budget=args.energy_budget)
     res["source_run"] = os.path.abspath(args.run)
     res["rho_name"] = args.rho_name
 
@@ -192,6 +205,13 @@ def main():
             cpk = c["peak"]
             print(f"[verify] corner {name}: peak {cpk['CE_dB']:.2f} dB @ "
                   f"{cpk['lam_um']:.3f} um")
+
+    if args.energy_budget:
+        eb = res["energy_budget"]
+        print(f"[verify] energy budget: P_fwd/P_in(CE) {eb['CE_dB']:.2f} dB, "
+              f"port_face_net_in/P_in {10*np.log10(eb['port_face_net_in']/eb['P_in']+1e-15):.2f} dB, "
+              f"closure residual {eb['closure_residual_frac_of_input']:.4%} "
+              f"[{eb['closure_check']['status']}]")
 
     if args.field:
         if rho2_binary is None:

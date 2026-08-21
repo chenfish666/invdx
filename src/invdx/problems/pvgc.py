@@ -189,6 +189,34 @@ def phasor_line_power(E, H, dl):
     return float(abs(0.5 * np.real(np.sum(E * np.conj(H))) * dl))
 
 
+def signed_poynting_flux_x(Ey, Hz, dl):
+    """SIGNED real Poynting flux in +x through a line, from phasor (Ey, Hz).
+
+    For this problem's polarization (E = Ey y-hat only; H = Hx x-hat +
+    Hz z-hat, no Hy in the thin-periodic-y quasi-2D scene):
+        S = 1/2 Re(E x H*) = (1/2 Re(Ey Hz*)) x-hat - (1/2 Re(Ey Hx*)) z-hat
+    so Sx = 1/2 Re(Ey * conj(Hz)).
+
+    energy_budget()'s judgment #2 in one line: `phasor_line_power` above
+    takes abs() of exactly this quantity, which is correct when the number
+    feeds a NORMALIZATION ratio (CE, mode power — direction is irrelevant,
+    only magnitude is) but wrong the moment the number has to go into an
+    energy-conservation SUM: a box's four face fluxes only cancel to zero
+    if inflow and outflow keep opposite signs. Do not route energy-budget
+    quantities through phasor_line_power's abs().
+    """
+    return float(0.5 * np.real(np.sum(Ey * np.conj(Hz))) * dl)
+
+
+def signed_poynting_flux_z(Ey, Hx, dl):
+    """SIGNED real Poynting flux in +z through a line, from phasor (Ey, Hx).
+
+    Sz = -1/2 Re(Ey * conj(Hx)) — see `signed_poynting_flux_x` for the
+    E x H* derivation (the minus sign is the y-hat x x-hat = -z-hat term).
+    """
+    return float(-0.5 * np.real(np.sum(Ey * np.conj(Hx))) * dl)
+
+
 # --------------------------------------------------------------------------
 # Scene construction (fdtdx, quasi-2D)
 # --------------------------------------------------------------------------
@@ -242,9 +270,71 @@ def _require_float32_dtype(cfg):
             f"engines.fdtdx_engine.make_sim_config reads cfg.dtype today.")
 
 
+def _box_bounds(cfg):
+    """energy_budget()'s closure-box extents, in pvgc (x, y=vertical) um.
+
+    Judgment #3 (abstention): the "four outward faces sum to zero" identity
+    only holds for a box whose INTERIOR has neither loss nor an active
+    source. This project's materials are always constant-real-permittivity
+    Si/SiO2/air (no lossy/dispersive material ever enters cfg), so the only
+    way the premise can break is geometric: a face landing inside the PML,
+    or the box enclosing the fiber-side source. Both are checked below and
+    RAISE rather than silently returning a number that merely looks
+    plausible (this is exactly the "wrong tool, no error" trap judgment #1
+    warns about, applied to geometry instead of detector choice).
+
+    inset=0.25 um reuses `fiber_mon`'s own inset from the PML boundary (see
+    build_scene: fib_width = cell_x - 2*dpml - 0.5), so the box's top face
+    is deliberately IDENTICAL to fiber_mon's plane — face_out_zhi in
+    energy_budget() reads fiber_mon directly instead of a duplicate
+    detector that could silently disagree with it.
+
+    Note on what is/isn't checked here: x_lo/x_hi/z_lo are each defined as
+    "PML boundary minus `inset`", so they clear the x/bottom-z PML by
+    construction for ANY cfg with a non-degenerate interior — checking them
+    against the PML boundary again would be a tautology (inset > 0). The
+    one PML-adjacent bound that is NOT structurally self-clearing is z_hi:
+    it comes from fiber_line_y, a parameter with no algebraic relationship
+    to the top PML boundary (air_above), so it genuinely can land inside
+    the PML for an unusual cfg — that case is checked explicitly below.
+    The degenerate-box check at the end is what catches interiors too
+    small to hold `inset` at all (equivalent to "PML has eaten the box").
+    """
+    inset = 0.25
+    x_lo = -(cfg.X0 - cfg.dpml - inset)
+    x_hi = +(cfg.X0 - cfg.dpml - inset)
+    z_lo = -(cfg.t_box + cfg.t_sub) + inset
+    z_hi = cfg.fiber_line_y - 0.4   # == fiber_mon's z-plane, see above
+
+    interior_z_hi = cfg.cell_z - cfg.Z0 - cfg.dpml   # == t_si + air_above
+    if z_hi >= interior_z_hi - 0.05:
+        raise ValueError(
+            f"energy_budget box top face (z_hi={z_hi:.4g} um) does not "
+            f"clear the top PML boundary at {interior_z_hi:.4g} um — "
+            f"refusing to report a closure check whose no-loss-inside "
+            f"premise (judgment #3) would be violated by absorbing PML "
+            f"cells. Raise air_above or lower fiber_line_y.")
+    if z_hi >= cfg.src_beam_y - 0.05:
+        raise ValueError(
+            f"energy_budget box top face (z_hi={z_hi:.4g} um) is not "
+            f"safely below the fiber-side source plane (src_beam_y="
+            f"{cfg.src_beam_y} um): the box would enclose an active "
+            f"source, and Poynting's theorem then no longer implies zero "
+            f"net outward flux for a lossless interior (a source "
+            f"contributes real injected power, not zero) — the closure "
+            f"check's premise would be violated silently. Raise "
+            f"src_beam_y or lower fiber_line_y so the box clears it.")
+    if x_lo >= x_hi or z_lo >= z_hi:
+        raise ValueError(
+            f"energy_budget box is degenerate for this cfg "
+            f"(x=[{x_lo:.4g},{x_hi:.4g}], z=[{z_lo:.4g},{z_hi:.4g}] um) — "
+            f"check dpml/X0/t_box/t_sub/fiber_line_y.")
+    return x_lo, x_hi, z_lo, z_hi
+
+
 def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
                 excitation="fiber", with_field_map=False,
-                shallow_teeth=None):
+                shallow_teeth=None, with_energy_box=False):
     """Object list + constraints for one run.
 
     teeth        — list of (x_min_um, width_um) Si teeth in pvgc coordinates
@@ -265,6 +355,13 @@ def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
     Detectors always present:
       "wg_mon"    x-plane at cfg.x_mon_wg, components (Ey, Hz)
       "fiber_mon" z-plane 0.4 um below the fiber line, components (Ey, Hx)
+    with_energy_box adds three more PhasorDetector lines ("ebox_xlo",
+      "ebox_xhi", "ebox_zlo") forming, together with the always-present
+      "fiber_mon", the four faces of `energy_budget`'s closure box (see
+      `_box_bounds` and `energy_budget`) — all PhasorDetector, never
+      fdtdx.PoyntingFluxDetector (judgment #1: that detector is an
+      instantaneous time-domain quantity and is meaningless mixed with a
+      pulsed source + phasor CE).
     Returns (config, object_list, constraints).
     """
     import jax.numpy as jnp
@@ -421,6 +518,44 @@ def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
     constraints.append(fiber_mon.same_size(volume, axes=(1,)))
     object_list.append(fiber_mon)
 
+    if with_energy_box:
+        # energy_budget()'s closure box: three NEW line detectors (the top
+        # face reuses fiber_mon exactly — same plane, same width — rather
+        # than adding a fourth detector that could silently disagree with
+        # it). All PhasorDetector (judgment #1); components/orientation
+        # match wg_mon (x-faces: Ey,Hz) / fiber_mon (z-face: Ey,Hx).
+        x_lo, x_hi, z_lo, z_hi = _box_bounds(cfg)
+        for name, x_at in (("ebox_xlo", x_lo), ("ebox_xhi", x_hi)):
+            ebx = fdtdx.PhasorDetector(
+                name=name,
+                partial_grid_shape=(1, None, None),
+                partial_real_shape=(None, None, (z_hi - z_lo) * UM),
+                wave_characters=wave_chars,
+                components=("Ey", "Hz"),
+                exact_interpolation=True,
+            )
+            constraints.append(ebx.place_relative_to(
+                volume, axes=(0, 2), own_positions=(-1, -1),
+                other_positions=(-1, -1),
+                margins=((cfg.X0 + x_at) * UM, (cfg.Z0 + z_lo) * UM)))
+            constraints.append(ebx.same_size(volume, axes=(1,)))
+            object_list.append(ebx)
+
+        ebox_zlo = fdtdx.PhasorDetector(
+            name="ebox_zlo",
+            partial_grid_shape=(None, None, 1),
+            partial_real_shape=((x_hi - x_lo) * UM, None, None),
+            wave_characters=wave_chars,
+            components=("Ey", "Hx"),
+            exact_interpolation=True,
+        )
+        constraints.append(ebox_zlo.place_relative_to(
+            volume, axes=(0, 2), own_positions=(-1, -1),
+            other_positions=(-1, -1),
+            margins=((cfg.X0 + x_lo) * UM, (cfg.Z0 + z_lo) * UM)))
+        constraints.append(ebox_zlo.same_size(volume, axes=(1,)))
+        object_list.append(ebox_zlo)
+
     if with_field_map:
         # full x-z plane phasor at lam_c only (single wavelength keeps the
         # memory trivial) — the coupling-region field figure
@@ -476,12 +611,13 @@ def _fdtd_forward(arrays, objects, sim_config, key):
 
 
 def _run(cfg, teeth, with_chip, seed=0, azimuth_sign=1.0, excitation="fiber",
-         with_field_map=False, shallow_teeth=None):
+         with_field_map=False, shallow_teeth=None, with_energy_box=False):
     sim_config, objs, cons = build_scene(cfg, teeth=teeth, with_chip=with_chip,
                                          azimuth_sign=azimuth_sign,
                                          excitation=excitation,
                                          with_field_map=with_field_map,
-                                         shallow_teeth=shallow_teeth)
+                                         shallow_teeth=shallow_teeth,
+                                         with_energy_box=with_energy_box)
     key = jax.random.PRNGKey(seed)
     key, k1, k2 = jax.random.split(key, 3)
     objects, arrays, params, sim_config, _ = fdtdx.place_objects(
@@ -565,6 +701,216 @@ def characterize(cfg, teeth, p_in=None, azimuth_sign=None, seed=0):
     return {"CE": ce, "CE_dB": 10 * np.log10(ce + 1e-15),
             "P_in": p_in, "P_mode": p_mode, "n_eff": float(neff),
             "azimuth_sign": azimuth_sign, "tilt_slope_rad_per_um": slope}
+
+
+# --------------------------------------------------------------------------
+# Energy budget — "where did the power go", promoted to a first-class,
+# conservation-checked measurement (Config B fiber-side excitation only).
+#
+# Genesis: a manual power tally on this exact scene found CE = -14 dB
+# decomposes as (only 11.18% of P_in actually enters the waveguide, -9.5 dB)
+# x (only 34.9% of THAT is the target TE0 mode, -4.6 dB), with 57-60%
+# leaking into the substrate and directionality (not reflection, not the
+# FOM) the dominant loss. That tally took five iterations to close (the
+# first four summed to 144-151% because a tool's "flux" detector was
+# returning an unsigned time-domain quantity, not a signed phasor one — an
+# error invisible if you only ever look at CE). The five judgments below are
+# what makes it not happen again; they are argued in more detail inline.
+# --------------------------------------------------------------------------
+
+
+def check_energy_closure(closure_residual_frac_of_input, hi=0.005, lo=0.001):
+    """Two-sided gate on |closure_residual_frac_of_input| (judgment #4).
+
+    TOO BIG a residual (> hi, default 0.5%) is the obvious failure: the
+    four box faces do not sum to zero, so a face is mis-signed,
+    mis-placed, double-counted, or the box violates `_box_bounds`'s
+    no-PML/no-source premise.
+
+    TOO SMALL a residual (< lo, default 0.1%) is ALSO a failure, not a
+    reassurance. This project's phasors are DFTs of a FIXED-length pulsed
+    run (fdtdx has no adaptive/steady-state stop — see PVGCConfig.sim_time_s),
+    so every phasor carries finite-run-time leakage. A real measurement
+    closing to much better than ~0.1% is not physically plausible and is
+    the signature of a bug that happens to look tidy — most often the same
+    flux counted on two "different" faces, or a sign flip on one face
+    exactly canceling a scale error on another. Silently accepting an
+    implausibly perfect number is how the tool-error above went undetected
+    through four iterations; this function refuses to.
+
+    Never raises (so it can run unattended inside a measurement pipeline,
+    e.g. characterize()/scripts/07, without aborting a batch) — callers
+    that want a hard stop should check the returned "ok" field.
+    """
+    r = abs(float(closure_residual_frac_of_input))
+    if r > hi:
+        return {"status": "fail_high", "ok": False, "residual_frac": r,
+                "message": (
+                    f"|closure_residual_frac_of_input| = {r:.4%} > "
+                    f"{hi:.4%}: the four box faces do not sum to zero — "
+                    f"the books do not balance. Check face signs/"
+                    f"placement, or whether the box now clips PML or a "
+                    f"source (see _box_bounds).")}
+    if r < lo:
+        return {"status": "fail_low", "ok": False, "residual_frac": r,
+                "message": (
+                    f"|closure_residual_frac_of_input| = {r:.4%} < "
+                    f"{lo:.4%}: this is TOO GOOD to trust. A finite-"
+                    f"duration pulsed run with DFT/phasor leakage should "
+                    f"not cancel this cleanly; a residual this small "
+                    f"usually means a face is double-counted or two "
+                    f"faces share a sign/scale bug that happens to "
+                    f"cancel. Re-check the box geometry before trusting "
+                    f"this run.")}
+    return {"status": "ok", "ok": True, "residual_frac": r,
+            "message": (f"closure residual {r:.4%} within the plausible "
+                        f"band [{lo:.4%}, {hi:.4%}]")}
+
+
+def _energy_budget_from_fields(cfg, zs_port, Ey_port, Hz_port,
+                               Ey_xlo, Hz_xlo, Ey_xhi, Hz_xhi,
+                               Ey_zlo, Hx_zlo, Ey_zhi, Hx_zhi,
+                               p_in, box_bounds):
+    """Pure-numpy core of `energy_budget` — all inputs are already-read
+    phasor line arrays (from real detectors or, in tests, synthetic ones),
+    so this is unit-testable without running fdtdx at all.
+
+    "port" fields (Ey_port, Hz_port, zs_port) are wg_mon's own (Ey, Hz) and
+    z-sample grid; the four "ebox_*" arg pairs are the closure box's four
+    faces in outward-face order (xlo, xhi, zlo, zhi) — zhi is always
+    fiber_mon's own (Ey, Hx) (see `_box_bounds` / build_scene).
+    """
+    x_lo, x_hi, z_lo, z_hi = box_bounds
+    dl = cfg.spacing_um
+
+    Em, Hm_fwd, neff = slab_te0_mode(zs_port, 0.0, cfg)
+    # judgment #5: there is no "transmitted past the grating, still
+    # guided" channel in this scene to project onto here — wg_slab only
+    # spans [-X0, -L_design/2] (build_scene: block("wg_slab", ...)), i.e.
+    # the design region's LEFT edge. Everything to the right of the design
+    # window (face_out_xhi below) is bare air/BOX/substrate: whatever power
+    # goes that way is unguided radiation, not a mode to overlap against.
+    # "forward" here means the -x direction (out of the box, into the real
+    # output waveguide) matching `characterize`'s own P_mode convention.
+    P_fwd = overlap_power_directional(Ey_port, Hz_port, Em, -Hm_fwd, dl)
+    P_back = overlap_power_directional(Ey_port, Hz_port, Em, Hm_fwd, dl)
+
+    # judgment #2: signed, not phasor_line_power's abs() — this quantity
+    # must be able to cancel against the box faces below.
+    port_face_net_in = -signed_poynting_flux_x(Ey_port, Hz_port, dl)
+    if port_face_net_in <= 0:
+        raise RuntimeError(
+            f"port_face_net_in = {port_face_net_in:.6g} <= 0: net power is "
+            f"not flowing from the grating into the output waveguide at "
+            f"wg_mon. The interface contract asserts this must be > 0; "
+            f"refusing to report a budget built on a port that isn't "
+            f"actually receiving power (check excitation/teeth/monitor "
+            f"placement before trusting anything else in this dict).")
+
+    face_out_xlo = -signed_poynting_flux_x(Ey_xlo, Hz_xlo, dl)
+    face_out_xhi = +signed_poynting_flux_x(Ey_xhi, Hz_xhi, dl)
+    face_out_zlo = -signed_poynting_flux_z(Ey_zlo, Hx_zlo, dl)
+    face_out_zhi = +signed_poynting_flux_z(Ey_zhi, Hx_zhi, dl)
+
+    closure_sum_outward = (face_out_xlo + face_out_xhi +
+                          face_out_zlo + face_out_zhi)
+    closure_residual_frac_of_input = closure_sum_outward / port_face_net_in
+    injection_purity_check = (port_face_net_in + P_back) / P_fwd
+
+    return {
+        "denominator": "P_fwd = forward slab-TE0 overlap at wg_mon",
+        "P_fwd": float(P_fwd),
+        "P_back": float(P_back),
+        "n_eff": float(neff),
+        "port_face_net_in": float(port_face_net_in),
+        "face_out_xlo": float(face_out_xlo),
+        "face_out_xhi": float(face_out_xhi),
+        "face_out_zlo": float(face_out_zlo),
+        "face_out_zhi": float(face_out_zhi),
+        "closure_sum_outward": float(closure_sum_outward),
+        "closure_residual_frac_of_input": float(closure_residual_frac_of_input),
+        "injection_purity_check": float(injection_purity_check),
+        "closure_check": check_energy_closure(closure_residual_frac_of_input),
+        "P_in": float(p_in),
+        "CE": float(P_fwd / p_in),
+        "CE_dB": float(10 * np.log10(P_fwd / p_in + 1e-15)),
+        "box_bounds_pvgc_um": {"x_lo": x_lo, "x_hi": x_hi,
+                               "z_lo": z_lo, "z_hi": z_hi},
+    }
+
+
+def energy_budget(cfg, teeth, p_in=None, azimuth_sign=None, seed=0,
+                  shallow_teeth=None):
+    """Where did the power go? Config B (fiber-side) energy accounting,
+    promoted from a one-off manual tally to a first-class, conservation-
+    checked measurement. Returns a dict (see module section header and the
+    five judgments below); `check_energy_closure` runs automatically and is
+    attached under "closure_check".
+
+    Five hard-won judgments this function encodes (do not undo any of
+    them without re-reading why):
+
+    1. PhasorDetector only, never fdtdx.PoyntingFluxDetector. The latter is
+       an INSTANTANEOUS time-domain quantity; this scene runs a pulsed
+       source and reports phasor (steady-state, single-frequency) CE, so
+       mixing in a time-domain "flux" is a unit/physics error that produces
+       a plausible-looking but meaningless number. wg_mon/fiber_mon already
+       carry (Ey,Hz)/(Ey,Hx) phasors with full flux information — reuse
+       those, plus three new PhasorDetector lines for the box (build_scene
+       with_energy_box=True).
+    2. `phasor_line_power`'s abs() throws away direction — fine for a
+       normalization ratio (CE), wrong for an energy-conservation SUM.
+       `signed_poynting_flux_x/z` keep the sign; their positive control
+       (a synthetic pure +x TE0 mode measured by the mode-overlap formula
+       AND the raw signed-flux formula must agree to ~1e-6, tests/
+       test_energy_budget.py) proves both readers share one absolute power
+       scale.
+    3. The box in `_box_bounds` must exclude PML and any active source, or
+       "four faces sum to zero" isn't true and the whole closure check is
+       a category error. Violations RAISE (ValueError) rather than
+       returning a number — see `_box_bounds`.
+    4. `check_energy_closure` gates BOTH directions: too big (>0.5%, the
+       books don't balance) AND too small (<0.1%, implausibly perfect for
+       a finite pulsed run — see its docstring for why that's suspicious,
+       not reassuring).
+    5. There is no "transmitted past the grating, still guided" channel in
+       this scene (wg_slab ends at the design window's left edge,
+       build_scene:block("wg_slab", ...)); face_out_xhi is pure radiation
+       by construction, not a mode to look for.
+    """
+    box_bounds = _box_bounds(cfg)   # raise before paying for a simulation
+
+    slope = None
+    if p_in is None or azimuth_sign is None:
+        p_in, azimuth_sign, slope = calibrated_beam(cfg, seed=seed)
+
+    arrays = _run(cfg, teeth=teeth, with_chip=True, seed=seed,
+                  azimuth_sign=azimuth_sign, shallow_teeth=shallow_teeth,
+                  with_energy_box=True)
+
+    Ey_port = _phasor(arrays, "wg_mon", 0, y_axis=0)
+    Hz_port = _phasor(arrays, "wg_mon", 1, y_axis=0)
+    n = Ey_port.shape[0]
+    z_mon_lo = cfg.t_si / 2 - cfg.wg_mon_height / 2
+    zs_port = z_mon_lo + (np.arange(n) + 0.5) * cfg.spacing_um
+
+    Ey_xlo = _phasor(arrays, "ebox_xlo", 0, y_axis=0)
+    Hz_xlo = _phasor(arrays, "ebox_xlo", 1, y_axis=0)
+    Ey_xhi = _phasor(arrays, "ebox_xhi", 0, y_axis=0)
+    Hz_xhi = _phasor(arrays, "ebox_xhi", 1, y_axis=0)
+    Ey_zlo = _phasor(arrays, "ebox_zlo", 0, y_axis=1)
+    Hx_zlo = _phasor(arrays, "ebox_zlo", 1, y_axis=1)
+    # face_out_zhi reuses fiber_mon directly (same plane, see _box_bounds)
+    Ey_zhi = _phasor(arrays, "fiber_mon", 0, y_axis=1)
+    Hx_zhi = _phasor(arrays, "fiber_mon", 1, y_axis=1)
+
+    out = _energy_budget_from_fields(
+        cfg, zs_port, Ey_port, Hz_port,
+        Ey_xlo, Hz_xlo, Ey_xhi, Hz_xhi, Ey_zlo, Hx_zlo, Ey_zhi, Hx_zhi,
+        p_in, box_bounds)
+    out["azimuth_sign"] = azimuth_sign
+    out["tilt_slope_rad_per_um"] = slope
+    return out
 
 
 # --------------------------------------------------------------------------
