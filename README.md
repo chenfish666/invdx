@@ -1,3 +1,5 @@
+> **English** · [繁體中文](README.zh-TW.md)
+
 # invdx — photonic inverse-design toolbox
 
 A fast GPU FDTD engine cross-validated against an independent reference
@@ -760,14 +762,15 @@ Written down so nobody has to discover them the hard way:
 Full index, grouped by tutorials / environment / method notes / honest
 record: [`docs/README.md`](docs/README.md).
 
-The method notes are English-only, but the hands-on tutorials — the PhC-bend
-walkthrough and both `toy/`-engine lessons — are bilingual: each English page has
-a Traditional Chinese twin beside it as `X.zh-TW.md`, and the two link to each
-other.
-
-動手教學都有繁體中文版:光子晶體 90° 彎重現見
-[`docs/phc-bend-walkthrough.zh-TW.md`](docs/phc-bend-walkthrough.zh-TW.md),
-`toy/` 引擎兩課見
+Every page in this repository is bilingual, this one included: each English
+page has a Traditional Chinese twin beside it as `X.zh-TW.md` and the two link
+to each other — the PhC-bend walkthrough is
+[`docs/phc-bend-walkthrough.zh-TW.md`](docs/phc-bend-walkthrough.zh-TW.md), the
+two `toy/`-engine lessons are
 [`tutorials/01-jax-port/README.zh-TW.md`](tutorials/01-jax-port/README.zh-TW.md)
-與 [`tutorials/02-first-adjoint/README.zh-TW.md`](tutorials/02-first-adjoint/README.zh-TW.md)。
-方法文件目前只有英文。
+and
+[`tutorials/02-first-adjoint/README.zh-TW.md`](tutorials/02-first-adjoint/README.zh-TW.md),
+and the index is [`docs/README.zh-TW.md`](docs/README.zh-TW.md).
+`make bilingual` checks that a pair has not drifted apart — matching code
+blocks, links, heading levels and cross-references, with the counts it checked.
+It does not check prose. Only a reader does that.

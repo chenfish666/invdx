@@ -1,7 +1,10 @@
+> **English** · [繁體中文](README.zh-TW.md)
+
 # Docs index
 
 One-line pointer to each doc; start at the top-level [`README.md`](../README.md)
 for the project overview.
+**Languages:** English · [繁體中文](../README.zh-TW.md).
 
 Every page listed below ends with the languages it is available in. A bilingual
 page is a pair — English `X.md` next to Traditional Chinese `X.zh-TW.md` — and
@@ -94,7 +97,7 @@ known to-do, not an oversight this paragraph is unaware of.
   declaring one `ProblemSpec` — or declined in writing, with the reason
   printed by the gate; forgetting to decide is an import error rather than a
   silent loss of coverage.
-  **Languages:** English.
+  **Languages:** English · [繁體中文](new-problem.zh-TW.md).
 
 ## Method notes
 

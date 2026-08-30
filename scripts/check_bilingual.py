@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Mechanical drift check for the English/Traditional-Chinese doc pairs.
 
-The repo keeps 11 documents in two languages. Every one of those is the same
-fact written down twice, and this project's own docs name "two copies, one
-updated" as the failure shape that produces no error signal. This script is
-that error signal. It only checks what a machine can check without pretending
-to read meaning:
+The repo keeps every document under docs/, under tutorials/, and at the repo
+root in two languages. Every one of those is the same fact written down twice,
+and this project's own docs name "two copies, one updated" as the failure shape
+that produces no error signal. This script is that error signal. It only checks
+what a machine can check without pretending to read meaning:
 
   1. pairing        every X.zh-TW.md has an X.md next to it
   2. header links   each half's first line points at the other half
@@ -80,8 +80,22 @@ import re
 import sys
 from pathlib import Path
 
-# Directories scanned for bilingual pairs, relative to the repo root.
+# Directories scanned recursively for bilingual pairs, relative to the repo root.
 SCAN_DIRS = ("docs", "tutorials")
+
+# The repo root is scanned too, but **only its top level**. README.md is the
+# most-read page in the tree and for a long time it was the one page no check
+# here ever looked at: it was appended to `pages` for the dead-link count
+# alone, its Chinese half was never collected, so no pair was ever formed and
+# the banned-form, join-key, code-block, link-set, heading and anchor checks
+# all skipped it. The summary still printed "0 English-only pages", which
+# reads as "everything is paired" -- the hole was hidden by a denominator that
+# never covered the place the hole was in.
+#
+# Non-recursive on purpose: rglob from the root walks .venv/, spack/env/,
+# runs/ and every third-party README underneath them, none of which this repo
+# writes or translates.
+SCAN_ROOT = True
 
 ZH_SUFFIX = ".zh-TW.md"
 
@@ -870,17 +884,19 @@ def check_count_floors(rep: Report, stats: dict) -> None:
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     pages: list[Path] = []
+    # What the summary line has to name. Built here rather than written out
+    # below, so the printed denominator cannot drift from the scan.
+    scanned_where: list[str] = []
+    if SCAN_ROOT:
+        pages += sorted(p for p in root.glob("*.md") if p.is_file())
+        scanned_where.append("the repo root (top level only)")
     for d in SCAN_DIRS:
         base = root / d
         if not base.is_dir():
             print(f"error: {base} does not exist -- wrong root?", file=sys.stderr)
             return 2
         pages += sorted(p for p in base.rglob("*.md") if p.is_file())
-    # The top-level README is not half of a pair, but it is a doc full of
-    # relative links into docs/ and scripts/. Leaving it out of the scan would
-    # make the dead-link denominator quietly smaller than the docs it covers.
-    if (root / "README.md").is_file():
-        pages.append(root / "README.md")
+        scanned_where.append(d + "/")
 
     zh_pages = [p for p in pages if p.name.endswith(ZH_SUFFIX)]
     en_pages = [p for p in pages if not p.name.endswith(ZH_SUFFIX)]
@@ -928,13 +944,21 @@ def main() -> int:
     check_join_keys(rep, root, pairs, rulings, stats)
     check_count_floors(rep, stats)
 
+    # Membership in the scan, not existence on disk. Those two came apart on
+    # the root pair: README.zh-TW.md existed, so README.md was not listed as
+    # English-only, but it was never collected, so no pair was formed and
+    # nothing was compared. "0 English-only pages" then read as "everything is
+    # paired" while naming a set the scan had never entered. This list is a
+    # denominator, not an error -- but it has to be a denominator over what was
+    # actually scanned.
+    scanned = set(pages)
     monolingual = [p for p in en_pages
-                   if not p.with_name(p.name[:-3] + ZH_SUFFIX).exists()]
+                   if p.with_name(p.name[:-3] + ZH_SUFFIX) not in scanned]
 
     rel = lambda p: p.relative_to(root)  # noqa: E731
     print(f"bilingual drift check -- {root}")
     print(f"scanned {len(pages)} markdown pages under "
-          f"{', '.join(d + '/' for d in SCAN_DIRS)}")
+          f"{', '.join(scanned_where)}")
     print(f"  {len(pairs)} bilingual pairs:")
     for en, zh in pairs:
         print(f"      {rel(en)}  <->  {rel(zh)}")

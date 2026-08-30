@@ -1,3 +1,5 @@
+> **English** · [繁體中文](new-problem.zh-TW.md)
+
 [← back to docs index](README.md)
 
 # How to add a new problem
