@@ -65,9 +65,8 @@ Two independent spack **environments** live under `spack/`, not one:
 ```bash
 git clone <repo> && cd invdx
 
-# L1: Python/GPU
-uv sync --extra gpu --extra dev
-uv run python -c "import jax; print(jax.devices())"
+# L1: Python/GPU (idempotent — a second run says "already matches uv.lock")
+bash scripts/bootstrap.sh
 
 # L2: spack itself (idempotent — reuses $SPACK_ROOT if already cloned)
 bash spack/bootstrap.sh
@@ -90,6 +89,11 @@ uv run make smoke-meep     # expect 1.34.0
 uv run make gates GPU=0    # G0-G5, all green (GPU=0 selects card 0; it
                            # does NOT disable the GPU -- G1..G5 need one)
 ```
+
+`scripts/bootstrap.sh` is the L1 counterpart of `spack/bootstrap.sh`, and
+does the one thing that one does not: it verifies the result rather than
+echoing "done". Details, including what it checks and why the GPU driver is
+one of the checks, are in "The uv layer (L1), in detail" below.
 
 There is no skip path in the gate runner: a gate whose prerequisites are
 absent **fails**, it does not skip. That is deliberate -- a skipped gate reads
@@ -206,6 +210,402 @@ None of this is a bug in this project's spack.yaml or recipe — it's what you
 get by default combining a non-`extends("python")` recipe with Lmod's
 module-per-prefix model, and it's exactly the kind of gap the view was
 built to route around.
+
+## The uv layer (L1), in detail
+
+L1 is the half of the environment that does the design work: JAX, the fdtdx
+GPU engine, and the CUDA runtime that carries them. It is smaller in prose
+than L2 because wheels are simpler than source builds — but it is where the
+gradients are computed, so it gets the same treatment.
+
+### Which layer a new dependency belongs in
+
+The rule is **follow the build model, not the project**. Ask what has to
+happen for the thing to exist on disk:
+
+| The dependency is… | Goes to | Because |
+|---|---|---|
+| distributed as wheels, pure Python or with self-contained binaries | **uv** (L1) | there is nothing to build; a resolver plus hashes is the whole job |
+| compiled, with a real dependency DAG through MPI / HDF5 / BLAS / a Fortran compiler | **spack** (L2) | the interesting decisions are which MPI, which compiler, which ABI — exactly what a concretizer exists for |
+| host state (kernel, vendor driver, fabric) | **neither** (L0) | any package manager that claimed it would fight the vendor |
+
+Two clarifications that decide most real cases:
+
+**A Python binding does not make something a Python package.** Meep ships
+`import meep`, and that is not an argument for uv. The thing being built is a
+C++ library with an MPI dependency; the Python layer is a thin SWIG shell over
+it. The question to ask is: *if this package had no Python API at all, would
+it still need building?* For Meep the answer is yes, so it is L2. For fdtdx
+the answer is "there would be nothing left", so it is L1.
+
+**Shipping a wheel is not the same as being pure Python.** `jax[cuda12]`
+pulls in gigabytes of NVIDIA binaries, and it is still L1 — because upstream
+has already done the build and publishes the result. The JAX docs are explicit
+that the pip wheels are the recommended CUDA path, and the CUDA wheel matrix
+covers Linux x86_64 and aarch64 only. Handing that build to spack was
+evaluated and rejected (see "Architecture" above); the pattern generalizes:
+*a dependency whose upstream treats wheels as the primary distribution
+channel stays in L1 even when it is enormous.*
+
+Cases this rule does not settle — a package with both a conda-forge build and
+a wheel, where the wheel bundles a different BLAS than L2 uses — are decided
+by which side needs to agree with the cross-validation engine, and that
+reasoning belongs in `docs/dependencies.md`, per package.
+
+### What `uv.lock` locks
+
+Same relationship as `spack.lock` to `spack.yaml`, one level up.
+`pyproject.toml` records *intent* and is deliberately underspecified;
+`uv.lock` records the *one solution* uv found for that intent. Measured on the
+committed lock: **148 packages, 314 hashes.**
+
+Only two things are pinned exactly in `pyproject.toml`
+(`jax[cuda12]==0.11.0`, `fdtdx==0.6.2`); everything else floats there and is
+held still by the lock. The two pins are **not** equally load-bearing, and
+the difference decides how hard each is to bump:
+
+- **`fdtdx==0.6.2` is structural.** Three modules under `src/invdx/engines/`
+  vendor pieces of that exact release:
+  `fdtdx_fixes.py` (a subclass repairing an axis-order bug in the 0.6.2
+  Gaussian plane source), `fdtdx_perf.py` (a specialized copy of the inner
+  time loop, gated on bitwise-identical output), and
+  `fdtdx_checkpoint_buffers.py` — whose docstring cites the upstream site it
+  patches down to *file and line numbers* in 0.6.2. Bumping fdtdx is not a
+  version edit; it is re-deriving three patches. This is why
+  `scripts/bootstrap.sh` imports `fdtdx_fixes` as part of verification
+  instead of only comparing version strings: a lock that still says 0.6.2
+  while the vendored subclass no longer binds is the failure a string
+  comparison cannot see.
+- **`jax==0.11.0` is conservative.** `jaxlib` and the two
+  `jax-cuda12-*` plugins must track `jax` exactly, so pinning one pins four,
+  and through them the whole CUDA wheel set. But nothing under `src/` imports
+  a JAX private module (`jax._src` appears nowhere in the tree), so there is
+  no vendored patch keyed to this version the way there is for fdtdx. Bumping
+  it is a re-measurement, not a re-derivation.
+
+One dependency is locked without being declared: `engines/fdtdx_checkpoint_buffers.py`
+imports `equinox.internal`, and `equinox` appears nowhere in
+`pyproject.toml` — it arrives only because fdtdx pulls it in. So a private
+API of an undeclared package is load-bearing, held in place by a pin on a
+*different* package. `docs/dependencies.md` records this as a declaration
+problem to fix rather than document forever; it is repeated here because it
+is also the sharpest reason the fdtdx pin cannot be treated as routine.
+
+### Why the lock is single-platform
+
+`pyproject.toml` carries:
+
+```toml
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+```
+
+This narrows what uv resolves for, and it is copied from upstream's support
+matrix rather than chosen for convenience: JAX publishes CUDA wheels for
+Linux x86_64 and aarch64 only. Resolving for platforms whose wheels do not
+exist would produce lock entries nobody can install and hashes nobody can
+check. The honest reading of that line is a claim about where this project
+has been run, not a claim that other platforms are unsupported in principle.
+
+### The cost of `--extra gpu`, measured
+
+On the reference environment (Python 3.12, `--extra gpu --extra dev`):
+
+| | |
+|---|---|
+| `.venv` on disk | **5.8 GiB** (6.20 GB) |
+| files under `.venv` | **19,633** |
+| installed distributions | **148** |
+| of which `nvidia-*-cu12` | **13** |
+| the `nvidia/` payload alone | 4.42 GiB |
+| next largest | `jax_plugins` 452 MiB, `jaxlib` 339 MiB |
+
+Nineteen thousand small files is the number that matters on a cluster, not
+the gigabytes. Several HPC centres name exactly this pattern — large counts
+of small files on a shared parallel filesystem — as a metadata-server
+problem, and a Python environment is the canonical offender. Both the
+environment and uv's cache can be moved off the shared filesystem:
+
+```bash
+# LOCAL=whatever your site calls node-local scratch; both must be on it
+export UV_PROJECT_ENVIRONMENT="$LOCAL/invdx-venv"   # where the venv is built
+export UV_CACHE_DIR="$LOCAL/uv-cache"               # where wheels are unpacked
+bash scripts/bootstrap.sh
+```
+
+Keep the two on the **same filesystem**: uv's cache documentation requires it,
+because uv links out of the cache into the environment and a cross-filesystem
+cache degrades to copying every file.
+
+**Where this project's support stops.** This environment is built for
+single-node and few-node runs, and that is the scale everything here has been
+exercised at. Past the point where a site's own guidance says to switch to
+containers for Python on a shared filesystem, that guidance is right and this
+repo has nothing to add: containerization was evaluated and is deliberately
+not part of this toolbox. Saying where the boundary is beats leaving it
+blank.
+
+### Offline / no-network reproduction
+
+**There is no official uv guide for air-gapped installation.** uv documents
+`--offline` / `UV_OFFLINE` ("relying only on locally cached data and locally
+available files") at flag level and stops there. What follows is this
+project's own procedure, and the results below were measured — at small
+scale, stated plainly — not inferred from documentation.
+
+First, the thing not to do: **do not copy `~/.cache/uv` to the target host.**
+uv's cache docs claim only that the cache must sit on the same filesystem as
+the environment, plus CI-caching advice. Nothing upstream claims the cache is
+a portable artifact, and treating it as one is exactly the sort of assumption
+that works until the day it does not.
+
+The two committed/generated artifacts do **different** jobs, and the
+difference is the point:
+
+| Artifact | Restores with | Needs |
+|---|---|---|
+| `pylock.toml` (tracked) | `uv pip sync pylock.toml` | the pinned `https://files.pythonhosted.org/...` URLs to be reachable |
+| `requirements.txt` (throwaway, `make requirements`) | `pip download` → `--find-links` | nothing but a directory of wheels |
+
+**Measured, on a cold uv cache with one small pure-Python package:**
+`uv pip sync --offline --no-index --find-links=<wheelhouse> pylock.toml`
+**fails**, with `Network connectivity is disabled, but the requested data
+wasn't found in the cache for: https://files.pythonhosted.org/...`, *while
+the matching wheel is sitting in the wheelhouse*. A PEP 751 lock pins URLs;
+it does not consult a flat index. The same wheelhouse, driven from
+`requirements.txt`, installs offline and succeeds. A control run against an
+empty wheelhouse fails, which is what makes the success meaningful rather
+than a warm cache in disguise.
+
+So `pylock.toml` is the **disaster-recovery and cross-installer** artifact —
+it restores an exact environment on a host that can still reach the index (or
+a mirror that preserves those URLs), with no uv project mode and no resolution
+step, because PEP 751 requires the hashes to be there already.
+
+One caveat that is easy to read past: the file carries an entry for `invdx`
+itself as `directory = { path = "." }`, so `uv pip sync` *builds* that entry in
+place. That needs `pyproject.toml` next to `pylock.toml` -- and the path is
+resolved relative to the lock file's own directory, not `$PWD`, so run it from
+the repository root. Syncing a copy of `pylock.toml` in an empty directory
+fails with "does not appear to be a Python project". Drop that one entry if
+you want the dependencies without the project.
+
+The **air-gapped** path goes through a wheelhouse:
+
+```bash
+# On a host WITH network, same platform and Python as the target:
+make requirements                       # hash-pinned, --no-emit-project
+uv venv .dl && VIRTUAL_ENV=.dl uv pip install pip
+.dl/bin/python -m pip download -d wheelhouse -r requirements.txt
+.dl/bin/python -m pip download -d wheelhouse "setuptools>=68"   # see below
+
+# Move `wheelhouse/` and `requirements.txt` to the air-gapped host, then:
+uv venv
+uv pip install --offline --no-index --find-links=wheelhouse -r requirements.txt
+uv pip install --offline --no-index --find-links=wheelhouse --no-deps -e .
+```
+
+Three details in there are not optional:
+
+- **`--no-emit-project`.** Without it the export begins with `-e .`, and pip
+  treats a single `--hash` anywhere in a file as a global switch into
+  hash-checking mode, where hashes are required for *all* requirements. The
+  editable line has no single file to hash, so the whole download fails:
+  `ERROR: The editable requirement file:///... cannot be installed when
+  requiring hashes, because there is no single file to hash.` The `make
+  requirements` target carries the flag for this reason, not for neatness.
+- **`uv pip download` does not exist** (checked against uv 0.12.5:
+  `uv pip` offers compile / sync / install / uninstall / freeze / list / show
+  / tree / check and nothing else). Building the wheelhouse is pip's job; uv's
+  role is on the install side, where `--find-links` works.
+- **The build backend has to be staged too, and `--find-links` has to be
+  repeated on the editable install.** `pip download -r requirements.txt`
+  fetches *runtime* dependencies; it never fetches what
+  `[build-system].requires` names. Installing the project itself then builds
+  it in an isolated environment that goes looking for `setuptools>=68` and,
+  offline, does not find it —
+  `Failed to resolve requirements from build-system.requires … Because
+  setuptools was not found in the provided package locations`. Measured, and
+  measured again after adding `setuptools` to the wheelhouse and passing
+  `--find-links` to the editable install, which is what makes the chain
+  complete.
+
+**Scale actually tested.** The mechanism above — export, wheelhouse,
+cold-cache offline install of both the dependencies and the project, and the
+negative controls — was exercised end to end on a **single ~10 KB
+pure-Python wheel plus its build backend**, deliberately, to avoid
+re-downloading 5.8 GiB. What that proves is the *mechanism*: which flags are
+required, which artifact reads a flat index and which does not, that the
+build backend is a separate staging step, and that the offline path is
+genuinely offline (the same command against an empty wheelhouse fails, and
+against a cold cache with no wheelhouse fails). What it does **not** prove is
+the 148-package case; there the extrapolation is that `pip download` fetches
+148 wheels instead of one and takes correspondingly longer. Platform-tagged
+wheels add one risk the small test cannot see: `pip download` resolves wheel
+tags for the *downloading* interpreter, so the staging host must match the
+target's Python version and platform, or the wheelhouse will be silently
+wrong for it — and with 13 CUDA wheels in the set, silently wrong is the
+likely failure rather than loudly missing.
+
+One more honest note: uv 0.12.5 prints
+`warning: The --pylock option is experimental and may change without warning`
+on every `uv pip sync pylock.toml`. PEP 751 itself is Final; uv's
+implementation of it is not yet stable. `uv.lock` remains the source of
+truth, which is why `pylock.toml` carries a header saying so and
+`make env-drift` exists to keep it honest.
+
+### Drift checks
+
+The L2 half of this pattern is under "What the lockfile locks" below —
+re-concretize and `git diff --exit-code` the tracked `spack.lock`. L1 does
+the same thing at two levels, in one target:
+
+```bash
+make env-drift
+```
+
+1. `uv lock --check` — is `uv.lock` still what `pyproject.toml` resolves to?
+   (uv's own freshness check; the same assertion `--locked` makes inside other
+   commands.)
+2. Re-export `pylock.toml` to a scratch path and `diff` it against the tracked
+   one — is the committed export still what today's `uv.lock` produces?
+
+No diff means the tracked files are still what the tracked intent produces.
+Both steps have been shown to fail on purpose: bumping one version string
+inside `pylock.toml` makes step 2 print the diff and exit non-zero, and adding
+a dependency to `pyproject.toml` makes step 1 stop with
+`The lockfile at uv.lock needs to be updated, but --check was provided`.
+Regenerate with `make pylock` and commit the result.
+
+`requirements.txt` is deliberately **not** tracked. uv's own documentation
+recommends against keeping a `uv.lock` and a `requirements.txt` side by side —
+the lock format expresses things `requirements.txt` cannot — so the only
+`requirements.txt` in this repo is the scratch one `make requirements` writes
+for `pip download`, and `.gitignore` keeps it out.
+
+### Bootstrap, and what it verifies
+
+`scripts/bootstrap.sh` follows the `scripts-to-rule-them-all` shape:
+*"script/bootstrap … used solely for fulfilling dependencies of the
+project."* It installs and verifies; it does not write `env.sh`, export
+variables, or run simulations.
+
+```bash
+bash scripts/bootstrap.sh              # the GPU environment
+bash scripts/bootstrap.sh --cpu-only   # skip the GPU extra and the driver gate
+bash scripts/bootstrap.sh --dry-run    # run every check, install nothing
+```
+
+In order, and every failure exits with a command to run next rather than a
+bare error:
+
+1. **uv present, and capable.** Rather than a hardcoded version floor — a
+   proxy that goes stale silently — it asks the binary whether
+   `uv sync --locked` and `uv export --format pylock.toml` exist, since those
+   are what the repo's workflow is built on.
+2. **An interpreter matching `requires-python`,** read out of
+   `pyproject.toml` rather than restated, and compared by `uv python find` so
+   that no version arithmetic is hand-rolled in shell.
+3. **The GPU driver (L0).** The layer table at the top of this page has always
+   listed "driver new enough for the pinned CUDA wheel" as the migration
+   check; until now nothing executed it. The script reads the CUDA major from
+   the `jax[cuda12]` pin, looks up the floor (JAX's install docs require a
+   driver `>= 525` for CUDA 12 on Linux; the table in the script carries
+   NVIDIA's exact CUDA 12 minimum, **525.60.13**), takes the *oldest* driver
+   among visible GPUs, and
+   **fails** below it — with the two real ways out: raise the host driver, or
+   install NVIDIA's CUDA forward-compatibility package, which NVIDIA supports
+   on data-center GPUs only. A warning would be wrong here: a driver below the
+   floor gives a *silent CPU fallback*, which is indistinguishable from a
+   working install in a summary line and merely slow in a benchmark. On a host
+   with no `nvidia-smi` at all this is not an error — it is reported, the CUDA
+   wheels still install (they are files), and the GPU check downstream becomes
+   informational.
+4. **`uv sync --locked --extra gpu --extra dev`** — never bare `uv sync`,
+   which re-resolves and rewrites `uv.lock` when it disagrees with
+   `pyproject.toml`. Same two-level pinning contract as L2. `uv sync --check`
+   runs first, so a re-run reports *"environment already matches uv.lock —
+   nothing to install"* rather than silently redoing the work.
+5. **Verification** — the section `spack/bootstrap.sh` does not have. That
+   script ends on `echo done`, so a build that produced an unimportable result
+   still reads as success. L1 instead imports out of what it just installed:
+   `jax`, `jaxlib` and `fdtdx` versions must equal the pins in
+   `pyproject.toml`; `jax.devices()` must show a GPU when a driver above the
+   floor was found; and `invdx.engines.fdtdx_fixes` must import, which is the
+   only check that notices when the pin and the vendored patch have come
+   apart.
+
+### How to tell a good install from a bad one
+
+L2's answer is `make smoke-meep`, expecting `1.34.0`. L1's, in ascending
+cost:
+
+```bash
+bash scripts/bootstrap.sh          # seconds when already installed; the five
+                                   # checks above, all printed
+uv run python -m invdx.hardware    # what JAX thinks it is running on:
+                                   # device kind, compute capability, the
+                                   # bytes_limit it will actually allow
+make check                         # G0 only: 178 pure-python unit tests
+                                   # (~5 min; they are not all trivial)
+make smoke                         # a tiny forward fdtdx sim on the GPU,
+                                   # through config/cli/runio
+make gates                         # G0..G5; G5 additionally needs L2
+```
+
+### Pits actually fallen into (L1)
+
+The L2 counterparts are below under "Three pits actually fallen into". These
+are the environment-shaped ones on this side.
+
+**1. The same source runs at a different float precision on a different
+card, and the run record cannot tell you.** JAX's `Precision.DEFAULT` on GPU
+means "use TF32 where available", so identical code is float32 on compute
+capability 7.5 and TF32 on 8.9 — two orders of magnitude apart in relative
+error — while `env.txt` recorded `jax.devices: [CudaDevice(id=0)]`, which is
+byte-identical on both. Any question of the form "was this measured on the
+same hardware as that?" was unanswerable from the stored record.
+`src/invdx/hardware.py` exists for this: it probes and reports (never
+applies), and `pin_matmul_precision()` makes the math mode an explicit,
+recorded choice. Worth knowing that PyTorch shipped the same default in 1.7
+and reverted it in 1.12 for precisely this reason; JAX still defaults it on.
+
+**2. `bytes_limit` is a fraction of what was free at initialisation, not of
+the card.** JAX's allocator reports a `bytes_limit` that is ~75% of memory
+*free when the process started*, so another process holding a few hundred MiB
+moves it. A memory budget derived from the card's nameplate size is therefore
+optimistic by a variable amount, and the failure shows up as an OOM in an
+eight-hour job rather than at startup. `invdx.hardware.main()` prints the
+fraction next to the nameplate figure so the gap is visible before the run,
+and every field of `DeviceProbe` is optional on purpose — `memory_stats()`
+returns `None` on the CPU backend and `compute_capability` reaches JAX
+through `__getattr__`, so a probe that guessed when it could not see would be
+worse than one that says `None`.
+
+**3. A vendored fix is only correct for the version it was derived against.**
+`engines/fdtdx_fixes.py` repairs fdtdx 0.6.2's `GaussianPlaneSource`, whose
+`_gauss_profile` builds its coordinate grid in (vertical, horizontal) order
+while receiving `center` in (horizontal, vertical) order. On a square source
+plane the swap is invisible — which is why upstream's tests pass — and on a
+strongly rectangular plane every grid point falls outside the truncation mask
+and the profile normalizes to `0/0 = NaN`. Upstream's development branch has
+rewritten that path entirely, so the patch is *wrong* against a newer fdtdx,
+not merely unnecessary. This is what makes the pin structural, and why the
+bootstrap verification imports the subclass rather than trusting
+`version("fdtdx")`.
+
+**4. `jax_enable_x64` must be set before the first array exists.** JAX
+defaults to float32 while numpy defaults to float64, and the flag is only
+honoured if it is flipped before any JAX array is created — so the line has
+to sit at the very top of the imports, not next to the code that needs it.
+The symptom is a numpy-vs-JAX difference stuck around `1e-7` that will not go
+lower no matter what tolerance is adjusted; `tutorials/01-jax-port` lists it
+first in its gotchas for that reason. `tests/test_toy_jax.py` and
+`tests/test_toy_adjoint.py` encode the ordering rather than assume it: each
+checks the flag, tries to set it, and catches the `RuntimeError` that JAX
+raises when arrays already exist — skipping with the reason spelled out
+(`"x64 must be enabled before jax arrays exist"`) instead of failing on a
+tolerance and sending the reader hunting for a numerical bug.
 
 ## Spack, explained for a first-timer
 

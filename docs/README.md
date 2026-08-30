@@ -27,8 +27,15 @@ commands rather than pages, so it carries no language tag.)
 ## Environment & reproduction
 
 - [`env.md`](env.md) — the uv/spack environment split, architecture diagram,
-  clean-clone reproduction steps, and a spack primer for newcomers.
+  clean-clone reproduction steps, and a primer for newcomers on each half:
+  which layer a new dependency belongs in, what `uv.lock` and `spack.lock`
+  each pin, the offline/no-network path and what was actually measured about
+  it, the drift checks, and the pits both halves have fallen into.
   **Languages:** English.
+- `bash scripts/bootstrap.sh` — layer L1 (uv, JAX, fdtdx): installs, gates on
+  the GPU driver version, and verifies by importing. `bash spack/bootstrap.sh`
+  is its L2 (Meep) counterpart. Both are idempotent; `make env-drift` checks
+  that the committed lockfiles still match the committed intent.
 - [`dependencies.md`](dependencies.md) — what the toolbox stands on: who
   maintains each package, what the licenses add up to (including how the GPL
   engine stays isolated), and what would break if one disappeared.

@@ -53,7 +53,7 @@ explained.
 | **hand a design to another solver** | `make handoff RUN=runs/<dir>` (seconds) | — | [Reporting and export](#reporting-and-export) |
 | **reproduce a literature benchmark** | `make phc-bend` (~2 min, CPU) | — | [docs/phc-bend-walkthrough.md](docs/phc-bend-walkthrough.md) |
 | **learn where the adjoint gradient comes from** | `python scripts/09_toy_adjoint.py` (CPU) | — | [tutorials/](tutorials/) |
-| **know the environment is intact** | `make check` (~10 s) | `make gates` (~3 min) | [docs/env.md](docs/env.md) |
+| **know the environment is intact** | `make check` (~5 min, CPU) | `make gates` (longer, needs a GPU) | [docs/env.md](docs/env.md) |
 | **simulate my own device, not the bundled one** | copy `problems/phc_bend.py` (the smaller of the two) | — | [docs/new-problem.md](docs/new-problem.md) |
 
 `make help` lists every target. `make runs` tells you which run directories can
@@ -63,13 +63,20 @@ and interrupted jobs, and the names do not distinguish them.
 ## Quickstart
 
 ```bash
-uv sync --extra gpu --extra dev
-make test       # pure-python unit tests (~10 s)
+bash scripts/bootstrap.sh   # install layer L1 (uv/jax/fdtdx) and verify it
+make test       # pure-python unit tests: 178 of them, ~5 min
 make phc-bend   # standard PhC-waveguide benchmark, toy engine, CPU (~2 min)
-make gates      # all six validation gates (~3 min) — prerequisites below
+make gates      # all six validation gates — prerequisites below
 ```
 
-The first three lines need nothing beyond that `uv sync`, and are the quickest
+`scripts/bootstrap.sh` is idempotent, checks that the GPU driver is new
+enough for the pinned CUDA wheels before installing anything, and imports out
+of the finished environment rather than assuming a successful install is a
+working one. `--cpu-only` skips the GPU extra; `--dry-run` checks without
+installing. What it checks and why is in
+[`docs/env.md`](docs/env.md#the-uv-layer-l1-in-detail).
+
+The first three lines need nothing beyond that bootstrap, and are the quickest
 green light that a fresh clone is intact. `make gates` is the line with
 prerequisites outside the Python environment: G0 is pure Python, G1–G4 need a
 GPU that JAX can see, and G5 alone needs Meep — which
@@ -221,6 +228,7 @@ Implementation details, the gradcheck story, and checkpoint/resume semantics:
 
 | script | purpose |
 |---|---|
+| `bootstrap.sh` | install and verify layer L1 (uv/jax/fdtdx); `--cpu-only`, `--dry-run`. Counterpart of `spack/bootstrap.sh` for L2 |
 | `00_check.py` | gate runner (`--only`, `--through`) |
 | `01_smoke_fdtdx.py` | tiny forward fdtdx sim through config/cli/runio |
 | `02_smoke_meep_bridge.py` | meep-env subprocess round-trip |

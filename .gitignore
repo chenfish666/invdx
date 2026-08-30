@@ -7,6 +7,13 @@ outputs/
 
 # uv-managed venv / L2 build trees (not repo state, see env.sh.example)
 .venv/
+# scratch output of `make requirements`, for feeding pip when building an
+# offline wheelhouse. uv.lock is the lock and pylock.toml is its PEP 751
+# export; a third requirements file in git would be a third thing to keep in
+# step (uv's own docs advise against tracking both). Regenerate, never commit.
+requirements.txt
+# wheelhouse built by `pip download` for an air-gapped host (docs/env.md)
+wheelhouse/
 .pixi/
 spack/env/.spack-env/
 spack/tools/.spack-env/
