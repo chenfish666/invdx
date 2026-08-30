@@ -35,6 +35,7 @@ import fdtdx
 
 from ..config import BaseConfig
 from ..engines.fdtdx_checkpoint_buffers import run_fdtd_buffers
+from .contract import GradcheckCase, ProblemSpec, ReciprocityCase
 
 UM = 1e-6
 
@@ -2330,3 +2331,103 @@ def rho_from_params_2d(device, params, beta):
                   beta=jnp.asarray(beta, dtype=jnp.float32))
     dens = np.asarray(dens, dtype=float)
     return dens.reshape(dens.shape[0], dens.shape[1])
+
+
+# --------------------------------------------------------------------------
+# Problem contract — the declaration the gates read (problems/contract.py)
+# --------------------------------------------------------------------------
+
+
+def gradcheck_case():
+    """G2 Part C's case: finite-difference the production inverse-design path.
+
+    Cheap-but-real settings: the full coupler scene at the 20 nm grid (the
+    grid the production recipe uses, and the only one that divides t_si
+    exactly), a
+    0.15 ps run and 10 checkpoints. The FOM is the unnormalized mode power
+    (P_in = 1): the incident-beam normalization is a design-independent
+    constant, so leaving it out saves an empty-cell run without weakening the
+    check by anything.
+
+    The base design is the uniform grating softened to 0.1/0.9 — a mid-grey
+    slab has almost no gradient signal to check (it is not a grating), and a
+    hard 0/1 profile sits on the clip boundary where the central difference
+    would degenerate into a one-sided one.
+
+    Everything above is a property of THIS problem, which is why it lives
+    here and not in the gate. What stays in the gate is the check itself: the
+    eligibility floor (MIN_REL_GRAD), the voxel sampling, the Richardson
+    extrapolation and REL_TOL. See gates/g2_gradcheck.py for why the
+    eligibility floor exists and why raising REL_TOL is never the fix.
+
+    sim_time_s defaults to 0.15e-12 so this gate stays fast; that is well
+    short of the 0.8e-12 production scale, so it cannot by itself catch a
+    truncation-error failure that only shows up at production settings.
+    Production-scale gradcheck validation runs via scripts/15's own
+    `--gradcheck` on the actual recipe (see script 15's `gradcheck()`), not
+    here. Set INVDX_G2_SIM_TIME_S to override this default for local
+    debugging.
+    """
+    import os
+
+    import jax.numpy as jnp
+
+    sim_time_s = float(os.environ.get("INVDX_G2_SIM_TIME_S", 0.15e-12))
+    pcfg = GratingCouplerConfig(spacing_um=0.020, sim_time_s=sim_time_s,
+                                theta_deg=10.0)
+    pcfg.design_grid_per_um = 50
+    vg_fn, _, _, params, device, value_fn = make_ce_value_and_grad(
+        pcfg, p_in=1.0, num_checkpoints=10)
+
+    rho = rasterize_teeth(pcfg, uniform_grating_teeth(
+        pcfg, period=0.575, duty=0.5))
+    base = (0.1 + 0.8 * rho).reshape(params[device.name].shape)
+    beta = jnp.asarray(float(pcfg.beta_schedule[0]), dtype=jnp.float32)
+
+    # The cast belongs to the problem, not the gate: float64-then-cast and
+    # float32-throughout do not round identically, and the gate must not be
+    # the thing that decides which one this path gets.
+    def vg(p, b):
+        return vg_fn(jnp.asarray(p, dtype=jnp.float32), b)
+
+    def value(p, b):
+        return float(value_fn(jnp.asarray(p, dtype=jnp.float32), b))
+
+    return GradcheckCase(
+        vg_fn=vg, value_fn=value, base=base, beta=beta, seed=pcfg.seed,
+        info={"spacing_um": pcfg.spacing_um, "sim_time_s": sim_time_s,
+              "design_grid_per_um": pcfg.design_grid_per_um})
+
+
+def reciprocity_case():
+    """G4's case: the same uniform grating measured from both sides.
+
+    Cheap settings — 25 nm grid, uniform grating, theta=10 where CE is
+    strong:
+
+    forward:  wg-side beam -> forward-TE0-normalized CE into the tilted
+              upward Gaussian (wg_side_characterize; injection impurity is
+              filtered by the forward mode overlap)
+    reverse:  fiber-side tilted beam -> CE into the -x TE0 (characterize)
+
+    The two runs share no normalization: `wg_side_characterize` divides by a
+    traced forward TE0 overlap, `characterize` by an empty-cell beam power
+    from `calibrated_beam`. That independence is the whole gate — a factor
+    applied to both would cancel and stay invisible.
+    """
+    pcfg = GratingCouplerConfig(spacing_um=0.025, sim_time_s=0.8e-12,
+                                theta_deg=10.0)
+    teeth = uniform_grating_teeth(pcfg, period=0.575, duty=0.5)
+    fwd = wg_side_characterize(pcfg, teeth)
+    rev = characterize(pcfg, teeth)
+    return ReciprocityCase(
+        fwd_dB=fwd["CE_fwd_dB"], rev_dB=rev["CE_dB"],
+        extra={"S11_dB": fwd["S11_dB"]})
+
+
+PROBLEM = ProblemSpec(
+    name="grating_coupler",
+    config_cls=GratingCouplerConfig,
+    gradcheck_case=gradcheck_case,
+    reciprocity_case=reciprocity_case,
+)

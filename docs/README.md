@@ -46,9 +46,11 @@ commands rather than pages, so it carries no language tag.)
 - [`new-problem.md`](new-problem.md) — add your own device to the toolbox:
   what a problem module has to provide, which file to copy from, how to look
   at the geometry before paying for a simulation, and the convention
-  contracts that give a wrong answer quietly rather than raising. Honest
-  about what is not covered yet — two of the six gates are wired to the
-  bundled example and a new problem does not inherit them.
+  contracts that give a wrong answer quietly rather than raising. The two
+  gates that measure a concrete device (G2 Part C, G4) are inherited by
+  declaring one `ProblemSpec` — or declined in writing, with the reason
+  printed by the gate; forgetting to decide is an import error rather than a
+  silent loss of coverage.
   **Languages:** English.
 
 ## Method notes

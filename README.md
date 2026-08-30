@@ -237,10 +237,15 @@ Implementation details, the gradcheck story, and checkpoint/resume semantics:
 Adding a third is [`docs/new-problem.md`](docs/new-problem.md): what a problem
 module has to provide, which of these two to copy from (`phc_bend` is the
 smaller), how to look at the geometry before paying for a simulation, and the
-convention contracts that give a wrong answer quietly rather than raising. It
-is honest about what is not covered yet — there is no registry and no plugin
-hook, the wiring is imports, and two of the six gates are written against the
-grating coupler so a new problem does not inherit them.
+convention contracts that give a wrong answer quietly rather than raising.
+The required contract is deliberately small — a config subclass and a
+`PROBLEM = ProblemSpec(...)` declaration — because across these two problems
+the intersection of module-level names is empty, and a larger "contract"
+would be one neither of them implements. What the declaration does buy is the
+two gates that measure a concrete problem (G2 Part C gradcheck, G4
+reciprocity): a new problem inherits them by supplying a case, and a problem
+for which a gate has nothing to check must say so, with its reason, rather
+than losing the coverage silently.
 
 ## Scripts
 

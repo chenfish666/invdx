@@ -34,6 +34,24 @@ def base_parser(desc):
     return p
 
 
+def add_problem_arg(p):
+    """Add `--problem NAME` to a parser whose script needs *a* problem.
+
+    Deliberately not part of `base_parser`: most scripts here are written FOR
+    one problem (scripts/03 is the grating coupler's baseline; it is not a
+    baseline runner that happens to be pointed at one), and offering them a
+    flag that cannot change what they do would be a lie in `--help`. Add this
+    only where the choice is real.
+    """
+    from . import problems
+
+    p.add_argument("--problem", default=problems.DEFAULT, metavar="NAME",
+                   help=f"which problem to run against; registered: "
+                        f"{', '.join(problems.available())}, or an importable "
+                        f"dotted module path")
+    return p
+
+
 def _cast_like(cur, v):
     if isinstance(cur, bool):
         return v.lower() in ("1", "true", "yes", "on")

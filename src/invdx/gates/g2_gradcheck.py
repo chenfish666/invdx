@@ -8,19 +8,32 @@ adjoint gradients come back systematically too small.
 Part A: ConicFilter1D chain rule vs the authoritative numpy+autograd mapping.
 Part B: jax.value_and_grad through a tiny fdtdx device sim vs central FD on
         k=3 random design voxels, rel. err < 5%.
-Part C: the same finite-difference check on the REAL grating_coupler design path
-        (filter -> projection -> Device -> full coupler scene -> mode
-        overlap), because Part B's toy cell shares no code with it beyond
-        fdtdx itself. Cheap settings, same 5% tolerance.
-"""
+Part C: the same finite-difference check on a REAL problem's design path
+        (filter -> projection -> Device -> full scene -> mode overlap),
+        because Part B's toy cell shares no code with it beyond fdtdx
+        itself. Cheap settings, same 5% tolerance.
 
-import os
+Parts A and B are problem-independent and always run. Part C measures the
+problem named by `--problem` (default `invdx.problems.DEFAULT`), through that
+problem's `gradcheck_case()`. The split of responsibility is deliberate: the
+problem owns the settings, the starting design and the dtype conventions of
+its own callables; this gate owns the check — the eligibility floor, the
+voxel sampling, the Richardson extrapolation and REL_TOL. That is what lets a
+problem with no fdtdx and no jax be gradient-checked by this same code.
+
+A problem may declare `gradcheck_case=Unsupported("why not")`. Parts A and B
+still run and are still real coverage, so the gate reports [part] rather than
+[ok] or [n/a], with the problem's reason on the same line. A problem that
+declares nothing at all is an import error, which the runner turns into
+[FAIL] — silence is never an answer here.
+"""
 
 import numpy as np
 
+from invdx import problems
 from invdx.richardson_fd import richardson_fd_check
 
-from .runner import GateResult
+from .runner import GateResult, PARTIAL
 
 NAME = "gradcheck"
 ORDER = 2
@@ -31,8 +44,16 @@ REL_TOL = 0.05
 K_SAMPLES = 3
 # Part C only: a central difference cannot resolve a derivative whose signal
 # sits under its own float32 cancellation noise, so sample voxels carrying at
-# least this fraction of the peak gradient (see _part_c_grating_coupler_device).
+# least this fraction of the peak gradient (see _part_c_problem_device).
 MIN_REL_GRAD = 0.05
+
+# Part C's sampling report is a merge of two authors: whatever the problem put
+# in `GradcheckCase.info`, plus these three, which the gate measures itself.
+# A name in both is refused rather than resolved. Picking a winner would mean
+# writing one author's number under the other author's name -- the report still
+# parses, every key is present, and the value is simply someone else's. Raising
+# turns that into an import-time-loud failure with the colliding name in it.
+_GATE_OWNED_INFO_KEYS = frozenset({"grad_max", "n_eligible", "n_voxels"})
 
 
 def _part_a_filter_chain():
@@ -115,21 +136,14 @@ def _part_b_fdtdx_fd(cfg):
     return float(f0), checks, n_bad
 
 
-def _part_c_grating_coupler_device():
-    """Finite-difference the production grating_coupler inverse-design gradient.
+def _part_c_problem_device(spec):
+    """Finite-difference a problem's production inverse-design gradient.
 
-    Cheap-but-real settings: the full coupler scene at the 20 nm grid (the
-    grid the production recipe uses, and the only one that divides t_si
-    exactly), a
-    0.15 ps run and 10 checkpoints. The FOM is the unnormalized mode power
-    (P_in = 1): the incident-beam normalization is a design-independent
-    constant, so leaving it out saves an empty-cell run without weakening the
-    check by anything.
-
-    The base design is the uniform grating softened to 0.1/0.9 — a mid-grey
-    slab has almost no gradient signal to check (it is not a grating), and a
-    hard 0/1 profile sits on the clip boundary where the central difference
-    would degenerate into a one-sided one.
+    The settings, the starting design and the callables come from
+    `spec.gradcheck_case()` — that is the problem's business, and for
+    `grating_coupler` its docstring is where the choice of grid, run length
+    and 0.1/0.9 softening is argued. Everything below is the check, and is
+    the same for every problem.
 
     Sampling is restricted to voxels carrying at least MIN_REL_GRAD of the
     peak gradient. Deep inside a wide tooth the tanh projection saturates and
@@ -145,39 +159,19 @@ def _part_c_grating_coupler_device():
     signature of a central difference) — which is exactly what the Richardson
     extrapolation below cancels. Do not "fix" a future failure here by
     raising REL_TOL — that would hide a real one just as effectively.
-
-    sim_time_s defaults to 0.15e-12 so this gate stays fast; that is well
-    short of the 0.8e-12 production scale, so it cannot by itself catch a
-    truncation-error failure that only shows up at production settings.
-    Production-scale gradcheck validation runs via scripts/15's own
-    `--gradcheck` on the actual recipe (see script 15's `gradcheck()`), not
-    here. Set INVDX_G2_SIM_TIME_S to override this default for local
-    debugging.
     """
-    import jax.numpy as jnp
+    case = spec.gradcheck_case()
+    base = np.asarray(case.base)
+    beta = case.beta
 
-    from invdx.problems import grating_coupler
-
-    sim_time_s = float(os.environ.get("INVDX_G2_SIM_TIME_S", 0.15e-12))
-    pcfg = grating_coupler.GratingCouplerConfig(spacing_um=0.020, sim_time_s=sim_time_s,
-                           theta_deg=10.0)
-    pcfg.design_grid_per_um = 50
-    vg_fn, _, _, params, device, value_fn = grating_coupler.make_ce_value_and_grad(
-        pcfg, p_in=1.0, num_checkpoints=10)
-
-    rho = grating_coupler.rasterize_teeth(pcfg, grating_coupler.uniform_grating_teeth(
-        pcfg, period=0.575, duty=0.5))
-    base = (0.1 + 0.8 * rho).reshape(params[device.name].shape)
-    beta = jnp.asarray(float(pcfg.beta_schedule[0]), dtype=jnp.float32)
-
-    f0, grads = vg_fn(jnp.asarray(base, dtype=jnp.float32), beta)
+    f0, grads = case.vg_fn(base, beta)
     g = np.asarray(grads)
 
     mag = np.abs(g).ravel()
     eligible = np.flatnonzero(mag >= MIN_REL_GRAD * mag.max())
     if eligible.size < K_SAMPLES:
         eligible = np.argsort(-mag)[:K_SAMPLES]
-    rng = np.random.default_rng(pcfg.seed)
+    rng = np.random.default_rng(case.seed)
     flat_idx = rng.choice(eligible, size=K_SAMPLES, replace=False)
     checks, n_bad = [], 0
     for fi in flat_idx:
@@ -186,7 +180,7 @@ def _part_c_grating_coupler_device():
         def evaluate(sign, hh, idx=idx):
             pert = base.copy()
             pert[idx] += sign * hh
-            return float(value_fn(jnp.asarray(pert, dtype=jnp.float32), beta))
+            return case.value_fn(pert, beta)
 
         rc = richardson_fd_check(evaluate, FD_H, g[idx])
         fd, fd_h, fd_h2 = rc["fd"], rc["fd_h"], rc["fd_h2"]
@@ -197,9 +191,17 @@ def _part_c_grating_coupler_device():
                        "fd_h": float(fd_h), "fd_h2": float(fd_h2),
                        "rel_err": float(rel),
                        "fd_consistency": float(fd_consistency)})
-    return float(f0), checks, n_bad, {"grad_max": float(mag.max()),
-                                      "n_eligible": int(eligible.size),
-                                      "n_voxels": int(mag.size)}
+    info = dict(case.info)
+    clash = sorted(_GATE_OWNED_INFO_KEYS.intersection(info))
+    if clash:
+        raise ValueError(
+            f"{spec.name}.gradcheck_case() put gate-owned key(s) {clash} in "
+            f"GradcheckCase.info; the gate measures these itself. Rename them "
+            f"in the problem -- reserved: {sorted(_GATE_OWNED_INFO_KEYS)}.")
+    info.update({"grad_max": float(mag.max()),
+                 "n_eligible": int(eligible.size),
+                 "n_voxels": int(mag.size)})
+    return float(f0), checks, n_bad, info
 
 
 def run(cfg, args):
@@ -218,13 +220,25 @@ def run(cfg, args):
                       f"until resolved (check resolution vs design grid first)",
             **details})
 
-    f0_c, checks_c, n_bad_c, info_c = _part_c_grating_coupler_device()
-    details["grating_coupler_f0"] = f0_c
-    details["grating_coupler_fd_checks"] = checks_c
-    details["grating_coupler_sampling"] = info_c
+    spec = problems.from_args(args)
+    details["problem"] = spec.name
+    slot = spec.gradcheck_case
+    if isinstance(slot, problems.Unsupported):
+        # Parts A and B passed and are real coverage, so this is not [n/a];
+        # Part C did not run, so it is not [ok] either. The reason rides on
+        # the same console line as the status, which is the whole reason the
+        # status is worth having.
+        details["reason"] = (f"parts A+B passed; part C not applicable to "
+                             f"{spec.name}: {slot.reason}")
+        return GateResult(NAME, PARTIAL, details)
+
+    f0_c, checks_c, n_bad_c, info_c = _part_c_problem_device(spec)
+    details[f"{spec.name}_f0"] = f0_c
+    details[f"{spec.name}_fd_checks"] = checks_c
+    details[f"{spec.name}_sampling"] = info_c
     if n_bad_c:
         return GateResult(NAME, "fail", {
-            "reason": f"{n_bad_c}/{len(checks_c)} sampled grating_coupler design "
+            "reason": f"{n_bad_c}/{len(checks_c)} sampled {spec.name} design "
                       f"gradients exceed {REL_TOL:.0%} rel. err — the "
                       f"inverse-design path is not trustworthy (check "
                       f"spacing_um vs design_grid_per_um first)",

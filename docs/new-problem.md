@@ -18,25 +18,60 @@ Prerequisite: `make check` passes. If it does not, start at
 
 ## The contract: what a problem module actually is
 
-There is no registry, no plugin hook, and no abstract base class to
-implement. `src/invdx/problems/__init__.py` is a docstring and nothing else.
-Scripts, gates and tests import your module by name — that is the entire
-wiring.
+There is no abstract base class to inherit and no entry-point autodiscovery:
+nothing scans for problems, so a module becomes reachable either by one line in
+the registry dict in `src/invdx/problems/__init__.py`, or by handing `--problem`
+a dotted module path, which needs no edit here at all. Beyond that, scripts and
+tests import your module by name — that is still the wiring for code written
+*for* one problem, which most of `scripts/` is.
 
-So the contract is only this:
+There is exactly one thing you must declare, and it exists because of the gap
+this page used to end on: two of the six gates measure a concrete problem, and
+a new problem used to get neither of them, silently, by default. So a problem
+module ends with
+
+```python
+PROBLEM = ProblemSpec(
+    name="<yourname>",
+    config_cls=<YourName>Config,
+    gradcheck_case=...,      # a factory, or Unsupported("why not")
+    reciprocity_case=...,    # a factory, or Unsupported("why not")
+)
+```
+
+Neither gate slot has a default, so "I forgot" is an import error rather than
+a quiet loss of coverage. `problems.load("<yourname>")` reads that declaration
+after you add your module to the registry dict in
+`src/invdx/problems/__init__.py`; `load` also accepts a dotted module path, so
+a problem living outside this repo can be gated without being vendored in.
+Details and the exact types: [`src/invdx/problems/contract.py`](../src/invdx/problems/contract.py).
+
+Everything else is a convention rather than a contract, and the honest reason
+is worth stating: across the two shipped problems the intersection of
+module-level function names is **empty**. `grating_coupler` and `phc_bend`
+share no callable at all. So the table below describes shapes you will end up
+writing, not names anything imports.
 
 | you provide | who consumes it | required? |
 |---|---|---|
+| `PROBLEM = ProblemSpec(...)` | `problems.load`, gates G2 Part C and G4 | yes |
 | a `@dataclass` config subclassing `config.BaseConfig` | `cli.apply_overrides` (`--set`), `cli.start_run` (writes `config.json`) | yes |
 | geometry as plain numpy / plain data | your own scene builders, your tests, `invdx.viz` | yes, in practice |
 | one scene builder per engine you use | your measurement functions | one per engine |
 | measurement functions returning plain JSON-able dicts | driver scripts, gates, `runio.save_json` | yes |
-| `vg_fn(p, beta) -> (loss, grad)` with `loss = -FOM` | `optimize.run_loop` | only for inverse design |
+| `vg_fn(p, beta) -> (loss, grad)` with `loss = -FOM` | `optimize.run_loop`, `ProblemSpec.gradcheck_case` | only for inverse design |
 
-**Minimum viable problem: a config subclass, a geometry function, and one
-measurement that is a ratio of two runs.** A second engine, a differentiable
-figure of merit and an optimizer driver are all opt-in, and each is a
-separate day of work. Do not start with them.
+**Minimum viable problem: a config subclass, a geometry function, one
+measurement that is a ratio of two runs, and a `PROBLEM` declaration that
+answers both gates — even if both answers are `Unsupported`.** A second
+engine, a differentiable figure of merit and an optimizer driver are all
+opt-in, and each is a separate day of work. Do not start with them.
+
+The smallest complete example is
+[`tests/fixture_problems/tmm_stack.py`](../tests/fixture_problems/tmm_stack.py):
+~150 lines, no engine, no GPU, and it earns both gates. It lives under
+`tests/` rather than `problems/` because it is a contract fixture, not a
+device anyone designs.
 
 ---
 
@@ -525,10 +560,11 @@ run constantly, and a slow gate is a gate people start skipping.
 
 ---
 
-## Step 7 — a gate of your own, and what the shipped gates do *not* do for you
+## Step 7 — inheriting the gates, and adding one of your own
 
-Be clear about what a new problem inherits. Of the six shipped gates, four
-are problem-independent and two are not:
+Be clear about what a new problem inherits. Four of the six shipped gates are
+problem-independent; the other two measure the problem named by `--problem`,
+and you get them by declaring a case:
 
 | gate | for a new problem |
 |---|---|
@@ -536,16 +572,39 @@ are problem-independent and two are not:
 | G1 `api` | free — fdtdx API surface, GPU visible, Meep bridge ping |
 | G3 `physics` | free — vacuum flux conservation, an engine-level check |
 | G5 `crossengine` | free — fdtdx vs Meep vs analytic on a dielectric slab |
-| G2 `gradcheck` Part C | **hardcoded to `grating_coupler`**. Parts A and B (filter chain rule, fdtdx value-and-grad on a toy cell) are generic; Part C finite-differences the `grating_coupler` design path specifically |
-| G4 `reciprocity` | **hardcoded to `grating_coupler`** end to end |
+| G2 `gradcheck` Part C | write `gradcheck_case()` (settings, starting design, `vg_fn`/`value_fn`); the gate supplies the eligibility floor, the sampling, the Richardson extrapolation and the 5% tolerance. Parts A and B are generic and always run. |
+| G4 `reciprocity` | write `reciprocity_case()` returning two independently normalized dB numbers; the gate supplies the comparison and the 0.5 dB bound |
 
-So a new problem gets engine-level trust for free and **no gradient or
-reciprocity coverage of its own** until you write it. That is a real gap, not
-an oversight to work around: those two checks are the ones that catch
-normalization and gradient errors, which are exactly the errors that survive
-every other check.
+Both cases are declared in your module's `PROBLEM`, and both are checked by
+running the real gate:
 
-Adding a gate is a file, not a registration. `gates/runner.discover()` imports
+```bash
+uv run python scripts/00_check.py --only reciprocity --problem <yourname>
+uv run python scripts/00_check.py --only gradcheck   --problem <yourname>
+```
+
+If a gate genuinely has nothing to check on your problem, say so **in code,
+with the argument**:
+
+```python
+reciprocity_case=Unsupported(
+    "the measurement is p_bend / p_straight: two runs sharing one source and "
+    "one normalization, so the normalization cancels in the ratio and there "
+    "is nothing left to check")
+```
+
+(That is `phc_bend`'s real declaration.) The runner then prints `[n/a]` — or
+`[part]`, when only the problem-specific half of a gate was declared away —
+with your reason on the same line. It is not a pass, it is not a failure, and
+it does not look like either. What you cannot do is say nothing: the slot has
+no default, so silence is an import error and the runner turns it into a
+`[FAIL]`. Write the reason for someone deciding whether to trust your numbers,
+and say what would have to change for the gate to become applicable.
+
+A worked example of a problem that earns both gates, with no engine and no
+GPU, is [`tests/fixture_problems/tmm_stack.py`](../tests/fixture_problems/tmm_stack.py).
+
+Adding a gate of your own is a file, not a registration. `gates/runner.discover()` imports
 every module in `src/invdx/gates/` whose name starts with `g` and sorts them
 by `ORDER`; the runner executes them in order and stops at the first failure.
 `REQUIRES` is documentation — the runner does not read it.
@@ -821,6 +880,7 @@ A new problem is finished when each of these prints what it should:
 | 7 | the anchor is enforced automatically, not by memory | `uv run python scripts/00_check.py --only <name>` → `[ok]` |
 | 8 | someone else can rerun your result from the run directory alone | `runs/<dir>/config.json` + `cmdline.txt` reproduce it |
 | 9 | *(inverse design only)* the gradient is checked against finite differences before any long run | `richardson_fd_check` at production settings |
+| 10 | both problem-specific gates have an answer, and it is the answer you meant | `--only gradcheck --problem <name>` and `--only reciprocity --problem <name>` → `[ok]`, or `[n/a]`/`[part]` printing the reason you wrote |
 
 If 4 and 7 are missing, you have a simulation, not a measurement.
 
@@ -837,7 +897,7 @@ Written down so you can plan, rather than discover it halfway through.
 | `engines/conventions.py` | generic rules; add yours here rather than in your problem module if another problem could hit them too. |
 | `engines/meep_bridge.py` | generic. Adding a Meep task means adding `task_<name>(payload, jobdir)` to `engines/meep_worker.py` and registering it in that file's `TASKS` dict; the payload must be plain JSON, with arrays passed separately via `run_job(..., arrays={...})`. Round-trip check: `make smoke-meep`. |
 | `gates/g0`, `g1`, `g3`, `g5` | problem-independent; you inherit them. |
-| `gates/g2` Part C, `gates/g4` | `grating_coupler`-specific. Your problem has no gradcheck or reciprocity gate until you write one (step 7). |
+| `gates/g2` Part C, `gates/g4` | generic checks over a problem-supplied case. You inherit them by declaring `gradcheck_case` / `reciprocity_case` in your `PROBLEM`, or declare `Unsupported(reason)` and get a labelled gap instead of a silent one (step 7). |
 | `viz/plots.py` | filename-driven and mostly free (see step 8), except `gap.json` / `bend.json`, which carry `phc_bend`'s labels. |
 | `report.py` | reads keys out of `results.json` (`peak`, `bandwidth_3db`, `linewidth`, `spectrum`, `corners`, `s11`). Emit the same keys and the Markdown table works; emit different ones and write your own. |
 | `export/gds.py` | generic for a 1-D binary profile: `export_profile_gds(rho, grid_per_um=..., width_um=..., min_feature_um=..., out=...)` plus a minimum-feature self-check. |

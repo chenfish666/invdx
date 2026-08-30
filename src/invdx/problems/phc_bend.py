@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..config import BaseConfig
+from .contract import ProblemSpec, Unsupported
 
 
 @dataclass
@@ -260,3 +261,29 @@ def meep_bend_transmission(cfg, defect=None, n_ranks=1, timeout=1800):
 
     return meep_bridge.run_job("phc_bend", meep_payload(cfg, defect),
                                n_ranks=n_ranks, timeout=timeout)
+
+
+# --------------------------------------------------------------------------
+# Problem contract — the declaration the gates read (problems/contract.py)
+# --------------------------------------------------------------------------
+
+PROBLEM = ProblemSpec(
+    name="phc_bend",
+    config_cls=PhCBendConfig,
+    gradcheck_case=Unsupported(
+        "no differentiable design path — this module is numpy-pure on "
+        "purpose so engines/meep_worker.py can import it inside the Meep "
+        "environment, and the toy 2D FDTD it runs on has no adjoint. There "
+        "is no gradient here for a finite difference to disagree with. "
+        "Adding one means adding a jax path, at which point delete this "
+        "declaration rather than loosening the gate."),
+    reciprocity_case=Unsupported(
+        "the measurement is p_bend / p_straight: two runs sharing one source, "
+        "one detector family and one normalization, so the normalization "
+        "cancels in the ratio and there is nothing left for G4 to check. The "
+        "bend is of course reciprocal physically — what is missing is a "
+        "mode-overlap normalization per port, which the toy engine does not "
+        "have (no mode decomposition, only line flux). Wire this module to "
+        "Meep's mode decomposition and G4 becomes applicable; change this "
+        "declaration then."),
+)
