@@ -234,6 +234,14 @@ Implementation details, the gradcheck story, and checkpoint/resume semantics:
   cross-checked against Meep. Hands-on tutorial:
   `docs/phc-bend-walkthrough.md`. Script 06.
 
+Adding a third is [`docs/new-problem.md`](docs/new-problem.md): what a problem
+module has to provide, which of these two to copy from (`phc_bend` is the
+smaller), how to look at the geometry before paying for a simulation, and the
+convention contracts that give a wrong answer quietly rather than raising. It
+is honest about what is not covered yet — there is no registry and no plugin
+hook, the wiring is imports, and two of the six gates are written against the
+grating coupler so a new problem does not inherit them.
+
 ## Scripts
 
 | script | purpose |
