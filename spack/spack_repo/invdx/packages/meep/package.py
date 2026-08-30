@@ -32,20 +32,24 @@ class Meep(AutotoolsPackage):
 
     version("master", branch="master")
 
-    # invdx: bump 目標。sha256 為 `spack checksum meep 1.34.0` 算出之值（git tag
-    # 原始封存，走 class url 樣板 archive/refs/tags/）。
+    # invdx: bump target. The sha256 is what `spack checksum meep 1.34.0`
+    # produces (the git-tag source archive, via the class url template
+    # archive/refs/tags/).
     #
-    # 供應鏈互驗記錄（2026-08-17）：conda-forge pymeep-feedstock meta.yaml
-    # 記錄的是另一顆 sha256（3c9284…60bc6，來源 releases/download/ 的
-    # `make dist` 產物）。兩顆 tarball 皆直接對 github.com 核實為 NanoComp/meep
-    # 官方資產、內容皆為同一 tag v1.34.0，非供應鏈風險——差異純屬封裝：
-    # release dist tarball 的 python/Makefile.am 之 EXTRA_DIST 未列
-    # python/numpy.i（上游 dist 腳本的既有缺陷），導致該顆建置在 SWIG 產生
-    # meep-python.cxx 前就因缺檔失敗（make: No rule to make target 'numpy.i'）；
-    # git tag 封存含完整已追蹤檔案（含 numpy.i），本 recipe 既有的
+    # Supply-chain cross-check (2026-08-17): conda-forge pymeep-feedstock
+    # meta.yaml records a different sha256 (3c9284…60bc6, from the
+    # releases/download/ `make dist` artifact). Both tarballs were verified
+    # directly against github.com as official NanoComp/meep assets holding
+    # the same tag v1.34.0 — not a supply-chain concern; the difference is
+    # purely packaging. In the release dist tarball, EXTRA_DIST in
+    # python/Makefile.am omits python/numpy.i (a long-standing defect in the
+    # upstream dist script), so that tarball fails to build before SWIG can
+    # generate meep-python.cxx (make: No rule to make target 'numpy.i').
+    # The git-tag archive contains every tracked file (numpy.i included), and
+    # this recipe's existing
     # --enable-maintainer-mode + autoconf/automake/libtool build deps
-    # 正是為此封裝設計。故採 git tag 封存版本，與 upstream package.py 對其他
-    # 版本的預設行為一致。
+    # are designed for exactly that packaging. Hence the git-tag archive,
+    # consistent with what upstream package.py defaults to for other versions.
     version("1.34.0", sha256="1fa6dd4a363cd8085533e18913b02bba958618518c5843e94483545651d78ea4")
 
     version("1.29.0", sha256="f63bdf6a8fbae8aad87d4f683da3a466d687848a53bbebe1d6935fb268aeeffa")
@@ -103,14 +107,16 @@ class Meep(AutotoolsPackage):
     depends_on("hdf5+mpi", when="+hdf5+mpi")
     depends_on("gsl", when="+gsl")
     with when("+python"):
-        # invdx: python 版本閘放寬。upstream 無條件釘 python@:3.11；
-        # 上游 NEWS 稱 1.32.0 起才修好 Python 3.12+ 相容，故 @:1.31 沿用
-        # 舊上限、@1.32: 放寬到 3.11-3.13（涵蓋 1.34.0）。
+        # invdx: relaxed python version gate. Upstream pins python@:3.11
+        # unconditionally; upstream NEWS says Python 3.12+ compatibility was
+        # only fixed in 1.32.0, so @:1.31 keeps the old ceiling while @1.32:
+        # widens to 3.11-3.13 (which covers 1.34.0).
         depends_on("python@:3.11", when="@:1.31")
         depends_on("python@3.11:3.13", when="@1.32:")
         depends_on("py-numpy")
-        # invdx: numpy 版本閘。1.32: 起要求 numpy 2，對齊 conda baseline
-        # （pymeep 1.34.0 已驗證 numpy 2 世代）。
+        # invdx: numpy version gate. From 1.32: require numpy 2, matching the
+        # conda baseline (pymeep 1.34.0 is verified against the numpy 2
+        # generation).
         depends_on("py-numpy@2:", when="@1.32:")
         depends_on("swig")
         depends_on("py-mpi4py", when="+mpi")

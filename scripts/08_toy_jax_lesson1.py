@@ -1,14 +1,16 @@
 #!/usr/bin/env python
-"""第一課驗收器:你的 JAX 引擎 vs numpy 引擎,同一個光子晶體能隙量測。
+"""Lesson 1 checker: your JAX engine vs the numpy engine, same photonic-
+crystal gap measurement.
 
-  python scripts/08_toy_jax_lesson1.py                # 驗收函式庫版引擎
-  python scripts/08_toy_jax_lesson1.py --scan-demo    # lax.scan 三行入門範例
-  python scripts/08_toy_jax_lesson1.py --gpu          # 驗收 + 在 GPU 上跑同一份程式碼
+  python scripts/08_toy_jax_lesson1.py                # check the library engine
+  python scripts/08_toy_jax_lesson1.py --scan-demo    # three-line lax.scan primer
+  python scripts/08_toy_jax_lesson1.py --gpu          # check, then run the same code on GPU
   python scripts/08_toy_jax_lesson1.py \
       --file tutorials/01-jax-port/fdtd2d_jax_skeleton.py
-                                  # 驗收你自己填的教學版骨架(不動主線)
+                                  # check the skeleton you filled in (mainline untouched)
 
-通過標準:float64 下逐點差 < 1e-9(實際應在 1e-15 機器精度量級)。
+Pass criterion: pointwise difference < 1e-9 at float64 (in practice ~1e-15,
+machine precision).
 """
 
 import argparse
@@ -16,14 +18,16 @@ import os
 import sys
 import time
 
-# 課程預設在 CPU 上驗收(結果決定性、不用排隊等 GPU);--gpu 才開 GPU。
-# 平台選擇必須在 import jax 之前生效,否則 CUDA plugin 會先探測並噴警告。
+# The lesson checks on CPU by default (deterministic, no queueing for a GPU);
+# --gpu opts in. The platform choice must take effect before `import jax`,
+# otherwise the CUDA plugin probes the machine first and prints warnings.
 if "--gpu" not in sys.argv:
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-# float64 開關必須在任何 jax 陣列誕生之前設好 —— 這是 JAX 最經典的陷阱:
-# 它預設 float32(GPU 友善),而 numpy 是 float64;不開這個,你的引擎
-# 「看起來對」但和 numpy 版差在 1e-7,你會分不清是物理錯還是精度差。
+# The float64 switch must be set before any jax array exists -- this is JAX's
+# most classic trap: it defaults to float32 (GPU-friendly) while numpy is
+# float64. Without it your engine "looks right" but differs from numpy at
+# 1e-7, and you cannot tell a physics bug from a precision gap.
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -32,20 +36,20 @@ import numpy as np
 
 
 def scan_demo():
-    """lax.scan 是「帶狀態的迴圈」:cumsum 三行版。"""
+    """lax.scan is a loop that carries state: cumsum in three lines."""
     import jax.numpy as jnp
 
-    def step(carry, x):          # carry 進、carry 出,外加一個每步輸出
+    def step(carry, x):          # carry in, carry out, plus one output per step
         carry = carry + x
-        return carry, carry      # (新狀態, 這一步想記錄的東西)
+        return carry, carry      # (new state, what to record for this step)
 
     total, history = jax.lax.scan(step, 0.0, jnp.arange(5.0))
     print("total   =", total)          # 10.0
     print("history =", history)        # [0 1 3 6 10]
     print()
-    print("FDTD 的對應:carry = (Ez, Hx, Hy) 場狀態;x = 每步的源振幅;")
-    print("每步輸出 = 探針讀值。scan 把整個時間迴圈編成一個 XLA 程式,")
-    print("之後 jax.grad 就能穿過它對任何輸入(比如 eps)自動求梯度。")
+    print("FDTD mapping: carry = (Ez, Hx, Hy) field state; x = source amplitude per step;")
+    print("per-step output = probe reading. scan compiles the whole time loop into one")
+    print("XLA program, so jax.grad can then differentiate it w.r.t. any input (e.g. eps).")
 
 
 def build_case():
@@ -79,13 +83,13 @@ def check(engine_file=None):
 
     if engine_file:
         fdtd2d_jax = load_engine(engine_file)
-        print(f"[mode] 驗收教學版骨架:{engine_file}")
+        print(f"[mode] checking tutorial skeleton: {engine_file}")
     else:
         from invdx.toy import fdtd2d_jax
 
     kw = build_case()
-    print(f"[case] 光子晶體 bulk 能隙量測,格點 {kw['nx']}^2、"
-          f"{kw['steps']} 步(小尺寸,秒級)")
+    print(f"[case] photonic-crystal bulk gap measurement, {kw['nx']}^2 grid, "
+          f"{kw['steps']} steps (small, runs in seconds)")
 
     t0 = time.time()
     ref = fdtd2d.run(**kw)
@@ -97,8 +101,9 @@ def check(engine_file=None):
         t_j1 = time.time() - t0
     except NotImplementedError as e:
         print(f"\n[todo] {e}")
-        print("[todo] 三個空格還沒填完 —— 照 tutorials/01-jax-port/README.md "
-              "一格一格來;卡住了再翻 src/invdx/toy/fdtd2d_jax.py 對答案。")
+        print("[todo] a blank is still empty -- work through "
+              "tutorials/01-jax-port/README.md one blank at a time; if you get "
+              "stuck, check your answer against src/invdx/toy/fdtd2d_jax.py.")
         return 1
 
     t0 = time.time()
@@ -110,18 +115,19 @@ def check(engine_file=None):
     scale = float(np.max(np.abs(E0)))
     dE = float(np.max(np.abs(E0 - E1)))
     dH = float(np.max(np.abs(H0 - H1)))
-    print(f"[diff] max|dE| = {dE:.3e}, max|dH| = {dH:.3e} (場量級 {scale:.3e})")
-    print(f"[time] numpy {t_np:.2f}s | jax 首跑 {t_j1:.2f}s(含編譯)| "
-          f"jax 再跑 {t_j2:.2f}s")
+    print(f"[diff] max|dE| = {dE:.3e}, max|dH| = {dH:.3e} "
+          f"(field scale {scale:.3e})")
+    print(f"[time] numpy {t_np:.2f}s | jax first run {t_j1:.2f}s (with "
+          f"compile) | jax rerun {t_j2:.2f}s")
 
     if dE < 1e-9 * scale and dH < 1e-9 * scale:
-        print("\n[PASS] 兩個引擎逐位元同物理 —— 你的第一個 JAX FDTD 成立。")
-        print("       下一課(scripts/09):把 eps 當參數,jax.grad 穿過")
-        print("       整段時間演化拿梯度,再用有限差分驗證它。")
+        print("\n[PASS] both engines agree to the last bit -- your first JAX FDTD works.")
+        print("       Next lesson (scripts/09): make eps a parameter, push jax.grad")
+        print("       through the whole time evolution, then check it against finite differences.")
         return 0
-    print("\n[FAIL] 有差異 —— 檢查:(1) 空格順序(H 先、E 後、源、Mur)")
-    print("       (2) Ez_old 是否在 E 內部更新『之前』留影")
-    print("       (3) eps 是否除在 E 更新裡(不是 H)")
+    print("\n[FAIL] engines differ -- check: (1) blank order (H, then E, source, Mur)")
+    print("       (2) is Ez_old snapshotted BEFORE the E interior update")
+    print("       (3) is eps divided in the E update (not in the H update)")
     return 1
 
 
@@ -129,7 +135,7 @@ def gpu_check():
     from invdx.toy import fdtd2d_jax
 
     dev = jax.devices()[0]
-    print(f"[gpu] jax 預設裝置:{dev.platform} ({dev.device_kind})")
+    print(f"[gpu] jax default device: {dev.platform} ({dev.device_kind})")
     kw = build_case()
     t0 = time.time()
     fdtd2d_jax.run(**kw)
@@ -137,9 +143,9 @@ def gpu_check():
     t0 = time.time()
     fdtd2d_jax.run(**kw)
     t2 = time.time() - t0
-    print(f"[gpu] 同一份程式碼零修改跑在 {dev.platform}:首跑 {t1:.2f}s、"
-          f"再跑 {t2:.2f}s")
-    print("[gpu] 這就是移植的第二個回報:numpy 版永遠只有 CPU。")
+    print(f"[gpu] same code, zero edits, on {dev.platform}: first run "
+          f"{t1:.2f}s, rerun {t2:.2f}s")
+    print("[gpu] that is the port's second payoff: the numpy version is CPU-only, forever.")
 
 
 def main():

@@ -1,6 +1,9 @@
-# 獨立於 ../env/（meep 主環境，凍結不可動）的第二個 spack 環境。
-# 只裝叢集使用者空間工具：lmod（module 指令）＋ apptainer（容器打包，未來遷移 .sif 用）。
-# 需要 spack v1.2.0；bootstrap 見 ../bootstrap.sh
+# A second spack environment, separate from ../env/ (the meep environment,
+# which is frozen and must not be disturbed).
+#
+# This one holds only cluster user-space tooling: lmod (the `module` command)
+# and apptainer (container packaging, for a future .sif migration).
+# Requires spack v1.2.0; see ../bootstrap.sh to bootstrap it.
 spack:
   specs:
   - lmod
@@ -8,14 +11,17 @@ spack:
   packages:
     all:
       require:
-      - target=x86_64_v3       # 與 ../env/spack.yaml 對齊，保留可遷移性
+      - target=x86_64_v3       # aligned with ../env/spack.yaml; stays movable
     gettext:
-      # user scope（~/.spack/packages.yaml）把系統 gettext-base 標成 external
-      # （buildable:false），但那份只有 msgfmt/xgettext 沒有 autopoint，procps
-      # （lmod 的 build dep）的 autogen.sh 會失敗。加一個外部 gettext 不具備的
-      # variant（+libunistring，預設 ~libunistring）逼 concretizer 放棄 external、
-      # 自建一份完整 gettext（連 buildable:false 都蓋得過，因為 external spec
-      # 本身就不滿足這個變體）。
+      # The user scope (~/.spack/packages.yaml) marks the system gettext-base as
+      # external with buildable:false -- but that build ships msgfmt/xgettext
+      # without autopoint, so autogen.sh in procps (a build dep of lmod) fails.
+      #
+      # Requesting a variant the external does not have (+libunistring, which
+      # defaults to ~libunistring) forces the concretizer to abandon the
+      # external and build a complete gettext itself. This overrides even
+      # buildable:false, because the external spec simply does not satisfy the
+      # requested variant.
       buildable: true
       require: [+libunistring]
   concretizer:
@@ -23,7 +29,7 @@ spack:
   repos:
     builtin:
       git: https://github.com/spack/spack-packages.git
-      tag: v2026.06.0          # 與 ../env/spack.yaml 同一釘版，兩環境用同一份 recipe 快照
+      tag: v2026.06.0          # same pin as ../env/spack.yaml: one recipe snapshot for both environments
   config:
     build_jobs: 32
   modules:

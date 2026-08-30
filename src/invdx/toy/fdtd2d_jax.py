@@ -20,7 +20,7 @@ import numpy as np
 
 
 def gaussian_pulse(t, t0, spread, fcen=None):
-    """與 numpy 版同義,但用 jnp(t 可以是整條時間軸向量)。"""
+    """Same as the numpy version, but in jnp (t may be the whole time axis)."""
     env = jnp.exp(-(((t - t0) / spread) ** 2))
     if fcen is None:
         return env
@@ -47,7 +47,8 @@ def simulate(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
         eps = jnp.asarray(eps)
     mur = (dt - dx) / (dt + dx)
 
-    # 源的時間波形整條先算好,scan 每步吃一個值(比每步重算便宜也乾淨)
+    # Precompute the whole source waveform; scan eats one value per step
+    # (cheaper and cleaner than recomputing it inside the loop)
     amps = gaussian_pulse(jnp.arange(steps) * dt, source["t0"],
                           source["spread"], source.get("fcen"))
 
@@ -60,23 +61,27 @@ def simulate(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
         return Ez.at[source["i"], source["j"]].add(a)
 
     def step(state, a):
-        """一個時間步:state 進、state 出(scan 的合約)。"""
+        """One time step: state in, state out (the scan contract)."""
         Ez, Hx, Hy = state
 
-        # A:H 場更新(法拉第定律)——不可變風格,整陣列重算故不需 .at[]
+        # A: H update (Faraday's law) -- immutable style; whole arrays are
+        # recomputed, so no .at[] is needed here
         Hx = Hx - (dt / dx) * (Ez[:, 1:] - Ez[:, :-1])
         Hy = Hy + (dt / dx) * (Ez[1:, :] - Ez[:-1, :])
 
-        Ez_old = Ez   # Mur 邊界需要「上一步的 Ez」——在內部更新前留影
+        # Mur needs "Ez one step ago" -- snapshot it before the interior
+        # update overwrites it
+        Ez_old = Ez
 
-        # B:E 場內部更新(安培定律)——材料唯一進場的位置就是 /eps
+        # B: E interior update (Ampere's law) -- /eps is the one and only
+        # place the material enters
         curl = ((Hy[1:, 1:-1] - Hy[:-1, 1:-1])
                 - (Hx[1:-1, 1:] - Hx[1:-1, :-1]))
         Ez = Ez.at[1:-1, 1:-1].add((dt / dx) / eps[1:-1, 1:-1] * curl)
 
         Ez = inject(Ez, a)
 
-        # C:一階 Mur 吸收邊界(四條邊)
+        # C: first-order Mur absorbing boundary (four edges)
         Ez = Ez.at[0, :].set(Ez_old[1, :] + mur * (Ez[1, :] - Ez_old[0, :]))
         Ez = Ez.at[-1, :].set(Ez_old[-2, :]
                               + mur * (Ez[-2, :] - Ez_old[-1, :]))
@@ -84,7 +89,7 @@ def simulate(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
         Ez = Ez.at[:, -1].set(Ez_old[:, -2]
                               + mur * (Ez[:, -2] - Ez_old[:, -1]))
 
-        # 每步的觀測值(scan 會自動把它們沿時間軸疊起來)
+        # Per-step observables (scan stacks them along the time axis for you)
         out = {"probes": jnp.stack([Ez[p] for p in probes]) if probes
                else jnp.zeros((0,)),
                "energy": 0.5 * (jnp.sum(eps * Ez ** 2) + jnp.sum(Hx ** 2)
@@ -103,7 +108,7 @@ def simulate(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
 
 def run(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
         line_probes=None):
-    """介面與 invdx.toy.fdtd2d.run 完全相同(換引擎不換 API)。"""
+    """Exactly the interface of invdx.toy.fdtd2d.run (new engine, same API)."""
     if eps is not None:
         eps_np = np.asarray(eps, dtype=float)
         edge = np.concatenate([eps_np[0], eps_np[-1], eps_np[:, 0],
@@ -117,7 +122,8 @@ def run(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
                               courant=courant, eps=eps,
                               line_probes=line_probes)
 
-    # 打包成與 numpy 版一模一樣的輸出(下游程式碼不用知道引擎換了)
+    # Pack into exactly the numpy version's output shape (downstream code
+    # never needs to know the engine changed)
     return {"Ez": np.asarray(Ez), "t": np.arange(steps) * (courant * dx),
             "probes": {p: np.asarray(ys["probes"][:, i])
                        for i, p in enumerate(probes)},

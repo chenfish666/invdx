@@ -280,6 +280,16 @@ it runs as a separate program in its own environment via the subprocess
 bridge, so invdx carries no GPL obligations. RSoft FullWAVE is commercial
 and out-of-repo entirely — invdx only emits exchange files for it.
 
+Three packages in the Python dependency tree are copyleft rather than
+permissive: `tidy3d` (LGPL-2.1-or-later, arriving through fdtdx) and
+`certifi` and `tqdm` (both MPL-2.0, file-level weak copyleft). All three are
+used unmodified and none is redistributed here, so their obligations stay
+with their own files. Note the asymmetry with Meep, though: tidy3d runs
+*in the same process*, so what keeps it separable is the weakness of its
+license rather than an architectural boundary.
+[`docs/dependencies.md`](docs/dependencies.md) has the full inventory —
+every dependency with its steward, license, and supply-chain state.
+
 ## Citing
 
 If this toolbox is useful, cite it via [`CITATION.cff`](CITATION.cff) (or
@@ -309,3 +319,15 @@ Written down so nobody has to discover them the hard way:
 
 Full index, grouped by tutorials / environment / method notes / honest
 record: [`docs/README.md`](docs/README.md).
+
+The method notes are English-only, but the hands-on tutorials — the PhC-bend
+walkthrough and both `toy/`-engine lessons — are bilingual: each English page has
+a Traditional Chinese twin beside it as `X.zh-TW.md`, and the two link to each
+other.
+
+動手教學都有繁體中文版:光子晶體 90° 彎重現見
+[`docs/phc-bend-walkthrough.zh-TW.md`](docs/phc-bend-walkthrough.zh-TW.md),
+`toy/` 引擎兩課見
+[`tutorials/01-jax-port/README.zh-TW.md`](tutorials/01-jax-port/README.zh-TW.md)
+與 [`tutorials/02-first-adjoint/README.zh-TW.md`](tutorials/02-first-adjoint/README.zh-TW.md)。
+方法文件目前只有英文。

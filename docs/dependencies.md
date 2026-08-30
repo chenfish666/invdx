@@ -175,8 +175,7 @@ license. All three are used unmodified and none is redistributed, so
 obligations stay with those files and nothing reaches project code. Unlike
 Meep, though, tidy3d runs *in the same process*, so the boundary here is the
 license's own weakness, not an architectural separation. The top-level
-README's "Engine licenses" section currently covers fdtdx and Meep but not
-this, and should say so.
+README's "Engine licenses" section records the same three.
 
 **The one genuinely closed-source block is NVIDIA's.** The 13 CUDA runtime
 wheels are `LicenseRef-NVIDIA-Proprietary`. This is the only place where a

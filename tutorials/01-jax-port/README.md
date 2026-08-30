@@ -1,136 +1,167 @@
-# 第一課:把你的 FDTD 移植到 JAX
+> **English** · [繁體中文](README.zh-TW.md)
 
-> **這一課怎麼用**:函式庫裡已經有一份寫好並驗證過的 JAX 引擎
-> (`src/invdx/toy/fdtd2d_jax.py`,與 numpy 版差 9e-16;參考輸出見本資料夾
-> [RESULTS.md](RESULTS.md))——那是答案。這裡是**教學版**:挖空的骨架
-> [fdtd2d_jax_skeleton.py](fdtd2d_jax_skeleton.py) 留給你親手填,
-> 驗收時加 `--file` 指向它,不會動到函式庫那份。想自己練就**先別看**
-> src 那份答案。
+# Lesson 1: Port Your FDTD to JAX
 
-目標:親手把 `toy/fdtd2d.py`(numpy,~170 行,你已經用它重現過 PhC
-90° 彎那個文獻經典基準)移植成 JAX 版,並證明**逐位元同物理**。這一課的產出不只是一個
-更快的引擎——它是通往伴隨梯度的門票:JAX 版寫成後,`jax.grad` 就能
-穿過整段時間演化,自動給你「透射率對任何設計參數」的梯度(第二課)。
+> **How to use this lesson**: the library already ships a written-and-verified
+> JAX engine (`src/invdx/toy/fdtd2d_jax.py`, 9e-16 away from the numpy version;
+> reference output in [RESULTS.md](RESULTS.md) in this folder). That one is the
+> answer key. What you get here is the **teaching version**: the blanked-out
+> skeleton [fdtd2d_jax_skeleton.py](fdtd2d_jax_skeleton.py) is yours to fill in
+> by hand. Point the checker at it with `--file` and the library copy is never
+> touched. If you want the real practice, **do not open** the answer in `src`
+> first.
 
-寫程式的部分只有**三個空格**,全部在本資料夾的
+Goal: port `toy/fdtd2d.py` (numpy, ~160 lines; the engine you already used to
+reproduce that classic PhC 90-degree bend benchmark) to JAX by hand, and prove
+it is **bit-for-bit the same physics**. What comes out of this lesson is not
+just a faster engine — it is your ticket to adjoint gradients: once the JAX
+version exists, `jax.grad` can reach through the whole time evolution and hand
+you "transmission with respect to any design parameter" (lesson 2).
+
+There are only **three blanks** to fill in, all in this folder's
 [fdtd2d_jax_skeleton.py](fdtd2d_jax_skeleton.py),
-每格對照 numpy 版的同名段落。鷹架(scan 迴圈、輸出打包)已就緒。
+each one mirroring the identically named section of the numpy version. The
+scaffolding (the scan loop, the output packing) is already in place.
 
 ```bash
 cd <invdx repo>
-PY=python   # 你的 invdx env 的 python
+PY=python   # the python from your invdx env
 ```
 
 ---
 
-## 第 0 步:概念(10 分鐘,先讀再動手)
+## Step 0: Concepts (10 minutes, read before you type)
 
-### JAX 與 numpy 的唯一思想差異:陣列不可變
+### The one idea JAX and numpy disagree on: arrays are immutable
 
-numpy 允許原地改:`Hx -= ...`、`Ez[1:-1] += ...`。
-JAX 陣列**不可變**——每次「修改」其實是造一個新陣列:
+numpy lets you write in place: `Hx -= ...`, `Ez[1:-1] += ...`.
+JAX arrays are **immutable** — every "modification" actually builds a new array:
 
-| numpy(原地) | JAX(函數式) |
+| numpy (in place) | JAX (functional) |
 |---|---|
 | `Hx -= a` | `Hx = Hx - a` |
 | `Ez[1:-1,1:-1] += a` | `Ez = Ez.at[1:-1,1:-1].add(a)` |
 | `Ez[0,:] = b` | `Ez = Ez.at[0,:].set(b)` |
 
-為什麼要這樣?因為 JAX 的一切魔法(jit 編譯、自動微分、vmap)都
-建立在「函數沒有副作用」上:輸入進、輸出出,中間不偷改任何東西。
-編譯器因此能放心重排、融合、微分你的程式。
-(別擔心效率:jit 編譯後 `.at[].add` 會被優化回原地操作。)
+Why does this matter? Because every piece of JAX magic (jit compilation,
+autodiff, vmap) rests on functions having no side effects: input in, output
+out, nothing quietly changed in between. That is what lets the compiler
+reorder, fuse and differentiate your code without fear.
+(Do not worry about the cost: after jit, `.at[].add` is optimized back into an
+in-place update.)
 
-### lax.scan:帶狀態的迴圈
+### lax.scan: a loop that carries state
 
-先跑這個三行範例,看懂再往下:
+Run this three-line demo first, and do not move on until it clicks:
 
 ```bash
 $PY scripts/08_toy_jax_lesson1.py --scan-demo
 ```
 
-`scan(step, init, xs)`:`step(carry, x) -> (carry, y)` 被依序餵入
-`xs` 的每個元素,狀態 `carry` 一路傳遞,每步的 `y` 自動疊成陣列。
-對 FDTD 來說:
+`scan(step, init, xs)`: `step(carry, x) -> (carry, y)` is fed each element of
+`xs` in order, the state `carry` is threaded all the way through, and each
+step's `y` is stacked into an array for you. For FDTD:
 
-- `carry` = 場狀態 `(Ez, Hx, Hy)`
-- `xs` = 每步的源振幅(整條波形先算好)
-- `y` = 每步的探針讀值
+- `carry` = the field state `(Ez, Hx, Hy)`
+- `xs` = the source amplitude per step (the whole waveform, precomputed)
+- `y` = the probe reading at that step
 
-scan 把整個時間迴圈編成**一個** XLA 程式——這是之後 `jax.grad`
-能對整段演化求梯度的前提,也是它比 Python for 迴圈快的原因。
+scan compiles the entire time loop into **one** XLA program — that is the
+precondition for `jax.grad` differentiating the whole evolution later, and the
+reason it beats a Python for loop.
 
 ---
 
-## 第 1 步:填空格 A —— H 場更新(法拉第定律)
+## Step 1: Blank A — the H update (Faraday's law)
 
-打開 `fdtd2d_jax_skeleton.py` 找到空格 A,對照 numpy 版
-[fdtd2d.py](../../src/invdx/toy/fdtd2d.py) 的「H from curl E」兩行,
-改寫成不可變風格。把 `raise NotImplementedError` 那行刪掉。
+Open `fdtd2d_jax_skeleton.py`, find blank A, look at the two "H from curl E"
+lines in the numpy version [fdtd2d.py](../../src/invdx/toy/fdtd2d.py), and
+rewrite them in immutable style. Delete the `raise NotImplementedError` line.
 
-自問:H 的更新需要 `.at[]` 嗎?為什麼 E 需要?
-(提示:H 是整個陣列重算,E 只改內部切片。)
+Ask yourself: does the H update need `.at[]`? Why does E need it?
+(Hint: H is recomputed as a whole array, E only touches an interior slice.)
 
-## 第 2 步:填空格 B —— E 場內部更新(安培定律)
+## Step 2: Blank B — the E interior update (Ampere's law)
 
-對照「E interior from curl H」。兩件事別漏:
-1. `Ez_old = Ez` 的留影已在鷹架裡、且在你的更新**之前**——想一想
-   為什麼順序重要(Mur 要的是「上一步」的邊界值)。
-2. `/ eps[1:-1, 1:-1]` ——材料唯一進場的位置。第二課就是對這個
-   `eps` 求梯度,所以請對它保持敬意。
+Mirror the "E interior from curl H" block. Two things not to miss:
+1. `Ez_old = Ez` — the snapshot is already in the scaffolding, and it sits
+   **before** your update. Think about why the order matters (Mur wants the
+   boundary values from the previous step).
+2. `/ eps[1:-1, 1:-1]` — the one and only place the material enters. Lesson 2
+   takes the gradient with respect to exactly this `eps`, so treat it with
+   respect.
 
-## 第 3 步:填空格 C —— Mur 吸收邊界(四條邊)
+## Step 3: Blank C — Mur absorbing boundary (four edges)
 
-四行同一個模式,對照 numpy 版直接翻譯:
+Four lines, one pattern, a direct translation of the numpy version:
 
 ```
 Ez = Ez.at[0, :].set( Ez_old[1, :] + mur * (Ez[1, :] - Ez_old[0, :]) )
 ```
 
-(第一條邊直接送你,剩下三條自己來:`[-1,:]`、`[:,0]`、`[:,-1]`。)
+(That first edge is a gift. The other three are yours: `[-1,:]`, `[:,0]`,
+`[:,-1]`.)
 
-## 第 4 步:驗收
+## Step 4: Checkpoint
 
 ```bash
 $PY scripts/08_toy_jax_lesson1.py --file tutorials/01-jax-port/fdtd2d_jax_skeleton.py
 ```
 
-通過長這樣(數字量級要對):
+Passing looks like this (the seconds differ every run; the magnitudes are what
+must be right):
 
 ```
-[diff] max|dE| = ~1e-15, max|dH| = ~1e-15 (場量級 ~0.4)
-[PASS] 兩個引擎逐位元同物理
+[case] photonic-crystal bulk gap measurement, 110^2 grid, 2000 steps (small, runs in seconds)
+[diff] max|dE| = 8.882e-16, max|dH| = 9.159e-16 (field scale 4.140e-01)
+[time] numpy 0.39s | jax first run 1.01s (with compile) | jax rerun 0.32s
+
+[PASS] both engines agree to the last bit -- your first JAX FDTD works.
+       Next lesson (scripts/09): make eps a parameter, push jax.grad
+       through the whole time evolution, then check it against finite differences.
 ```
 
-1e-15 = float64 機器精度:你的 JAX 引擎和 numpy 引擎是**同一個物理**,
-不是「差不多」。這種等價證明就是 invdx 全專案的信任哲學,現在你
-親手做了一次。
+(With `--file` one extra line comes first:
+`[mode] checking tutorial skeleton: tutorials/01-jax-port/fdtd2d_jax_skeleton.py`.
+While a blank is still empty you get `[todo]` instead, naming the blank you are
+stuck on.)
 
-然後跑:
+1e-15 is float64 machine precision: your JAX engine and the numpy engine are
+**the same physics**, not "close enough". This kind of equivalence proof is how
+the whole invdx project earns trust, and you just produced one by hand.
+
+Then run:
 
 ```bash
 $PY scripts/08_toy_jax_lesson1.py --gpu
 ```
 
-同一份程式碼、零修改,跑上 GPU——移植的第二個回報。
+Same code, zero edits, running on a GPU — the port's second payoff.
 
 ---
 
-## 陷阱清單(卡住先看這裡)
+## Gotchas (look here first when you are stuck)
 
-- **float32 陷阱**:JAX 預設 float32,numpy 是 float64。驗收器已在
-  import 最前面開 `jax_enable_x64`;如果你自己另寫測試腳本,這行
-  必須在任何 jax 陣列誕生之前。差異卡在 1e-7 下不去?九成是這個。
-- **在 step 裡放 Python 副作用**(print、append 到外面的 list):
-  scan 只在「描圖」時執行你的 Python 一次,之後跑的是編譯產物——
-  副作用不會每步發生。要記錄的東西一律走 `y` 輸出。
-- **首跑很慢**:那是編譯(描圖 + XLA 最佳化),第二次才是真實速度。
-  驗收器印了兩個時間,自己看差多少。
-- **形狀錯**:curl 那行的切片形狀必須剛好 (nx-2, ny-2)。JAX 的報錯
-  會告訴你形狀,對照 numpy 版切片一格一格對。
+- **The float32 trap**: JAX defaults to float32, numpy is float64. The checker
+  flips `jax_enable_x64` at the very top of its imports; if you write your own
+  test script, that line must come before any JAX array is born. Stuck at a
+  difference around 1e-7 that will not go lower? Nine times out of ten this is
+  it.
+- **Python side effects inside `step`** (print, appending to an outer list):
+  scan runs your Python exactly once, while tracing; after that it runs the
+  compiled artifact — the side effect does not happen per step. Anything you
+  want recorded goes out through `y`.
+- **The first run is slow**: that is compilation (tracing + XLA optimization);
+  the second run is the real speed. The checker prints both times — go look at
+  the difference yourself.
+- **Shape errors**: the slices in the curl lines must come out exactly
+  (nx-2, ny-2). JAX's error message tells you the shapes; line them up against
+  the numpy slices one index at a time.
 
-## 完成後
+## When you are done
 
-對答案:你的填法和函式庫版 [src/invdx/toy/fdtd2d_jax.py](../../src/invdx/toy/fdtd2d_jax.py)
-比一比——寫法可以不同,通過 1e-15 驗收就是同一個物理。
-接著看第二課(tutorials/02):**第一個伴隨梯度**。
+Compare answers: put your fill-ins next to the library version
+[src/invdx/toy/fdtd2d_jax.py](../../src/invdx/toy/fdtd2d_jax.py) — the way you
+wrote it may differ, but passing at 1e-15 still means it is the same physics.
+Then go on to lesson 2 (`tutorials/02-first-adjoint`): **your first adjoint
+gradient**.

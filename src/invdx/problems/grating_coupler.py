@@ -1168,13 +1168,14 @@ def field_map_3d(cfg, teeth, wg_width_um=10.0, seed=0):
                  "eps": eps_grid_xz(cfg, teeth, *xz.shape),
                  "extent": np.array((-cfg.X0, cfg.X0, -cfg.Z0,
                                      cfg.cell_z - cfg.Z0)),
-                 "title": f"3D 側視 Re Ey  (y=0, λ = {cfg.lam_c} µm)"}
+                 "title": f"3D side view Re Ey  (y=0, λ = {cfg.lam_c} µm)"}
     out["xy"] = {"field": xy,
                  "eps": eps_grid_xy(cfg, teeth, wg_width_um, *xy.shape,
                                     cell_y_um=cell_y),
                  "extent": np.array((-cfg.X0, cfg.X0, -cell_y / 2,
                                      cell_y / 2)),
-                 "title": f"3D 俯視 Re Ey  (矽層中央, λ = {cfg.lam_c} µm)"}
+                 "title": f"3D top view Re Ey  (mid-silicon, "
+                          f"λ = {cfg.lam_c} µm)"}
     return out
 
 
@@ -1352,7 +1353,8 @@ def field_map(cfg, teeth, seed=0, shallow_teeth=None):
     eps = eps_grid_xz(cfg, teeth, nx, nz, shallow_teeth=shallow_teeth)
     extent = (-cfg.X0, cfg.X0, -cfg.Z0, cfg.cell_z - cfg.Z0)
     return {"field": field, "eps": eps, "extent": np.array(extent),
-            "title": f"耦合區穩態場 Re Ey  (λ = {cfg.lam_c} µm)"}
+            "title": f"coupler steady-state field Re Ey  "
+                     f"(λ = {cfg.lam_c} µm)"}
 
 
 def gaussian_mode_tilted(xs_um, x0, w0, lam_um, theta_deg, kx_sign=-1.0):

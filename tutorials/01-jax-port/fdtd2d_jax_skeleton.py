@@ -1,21 +1,25 @@
-"""第一課:把 toy 引擎移植到 JAX(你的作業本)。
+"""Lesson 1: port the toy engine to JAX (your workbook).
 
-這個檔案是**挖空的骨架**:鷹架(狀態初始化、lax.scan 迴圈、輸出打包)
-已寫好,三個空格 A/B/C 是物理本體,由你來填——它們正對應 fdtd2d.py
-(numpy 版)裡的同名段落。課程說明、概念、提示、檢查點都在同資料夾的
-README.md;驗收指令:
+This file is the **blanked-out skeleton**: the scaffolding (state init, the
+lax.scan loop, output packing) is already written; the three blanks A/B/C are
+the physics itself and are yours to fill in -- each maps to the identically
+named section of fdtd2d.py (the numpy version). Lesson text, concepts, hints
+and checkpoints live in README.md in this folder; the checker is:
 
     python scripts/08_toy_jax_lesson1.py \\
         --file tutorials/01-jax-port/fdtd2d_jax_skeleton.py
 
-填完後它會用 phc_bend 的能隙量測驗證你的版本與 numpy 版逐位元一致
-(float64 下差異應在 1e-15 量級)。
+Once filled in, it uses the phc_bend gap measurement to verify your version is
+bit-for-bit identical to the numpy one (the difference should be ~1e-15 at
+float64).
 
-與 numpy 版唯一的「思想差異」:JAX 陣列不可變(functional style)。
+The one conceptual difference vs numpy: JAX arrays are immutable (functional
+style).
     numpy:  Hx -= ...        Ez[1:-1,1:-1] += ...
     JAX:    Hx = Hx - ...    Ez = Ez.at[1:-1,1:-1].add(...)
-時間迴圈交給 jax.lax.scan——它把整個迴圈編譯成一個 XLA 程式,
-這正是之後 jax.grad 能「穿過整段時間演化」自動求梯度的前提。
+The time loop goes to jax.lax.scan -- it compiles the whole loop into one XLA
+program, which is exactly what later lets jax.grad differentiate "through the
+entire time evolution".
 """
 
 import jax
@@ -24,7 +28,7 @@ import numpy as np
 
 
 def gaussian_pulse(t, t0, spread, fcen=None):
-    """與 numpy 版同義,但用 jnp(t 可以是整條時間軸向量)。"""
+    """Same as the numpy version, but in jnp (t may be the whole time axis)."""
     env = jnp.exp(-(((t - t0) / spread) ** 2))
     if fcen is None:
         return env
@@ -33,7 +37,7 @@ def gaussian_pulse(t, t0, spread, fcen=None):
 
 def run(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
         line_probes=None):
-    """介面與 invdx.toy.fdtd2d.run 完全相同(換引擎不換 API)。"""
+    """Exactly the interface of invdx.toy.fdtd2d.run (new engine, same API)."""
     dt = courant * dx
     if eps is None:
         eps = jnp.ones((nx, ny))
@@ -46,7 +50,8 @@ def run(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
         eps = jnp.asarray(eps_np)
     mur = (dt - dx) / (dt + dx)
 
-    # 源的時間波形整條先算好,scan 每步吃一個值(比每步重算便宜也乾淨)
+    # Precompute the whole source waveform; scan eats one value per step
+    # (cheaper and cleaner than recomputing it inside the loop)
     t_axis = np.arange(steps) * dt
     amps = gaussian_pulse(jnp.asarray(t_axis), source["t0"], source["spread"],
                           source.get("fcen"))
@@ -60,41 +65,51 @@ def run(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
         return Ez.at[source["i"], source["j"]].add(a)
 
     def step(state, a):
-        """一個時間步:state 進、state 出(scan 的合約)。"""
+        """One time step: state in, state out (the scan contract)."""
         Ez, Hx, Hy = state
 
-        # ================= 空格 A:H 場更新(法拉第定律)=================
-        # 對照 fdtd2d.py 的兩行「H from curl E」。
-        # 記住:JAX 不可變 → Hx = Hx - ...(不是 Hx -= ...)
-        raise NotImplementedError("空格 A —— 見本課 README.md")
+        # ============== BLANK A: H update (Faraday's law) ================
+        # Mirror the two "H from curl E" lines in fdtd2d.py.
+        # Remember: JAX is immutable -> Hx = Hx - ... (not Hx -= ...)
+        raise NotImplementedError(
+            "BLANK A: update Hx and Hy from curl E -- see this lesson's "
+            "README.md")
         # Hx = ...
         # Hy = ...
         # ================================================================
 
-        Ez_old = Ez   # Mur 邊界需要「上一步的 Ez」——在內部更新前留影
+        # Mur needs "Ez one step ago" -- snapshot it before the interior
+        # update overwrites it
+        Ez_old = Ez
 
-        # ============ 空格 B:E 場內部更新(安培定律,材料在這)============
-        # 對照 fdtd2d.py 的「E interior from curl H」。
-        # 內部切片賦值用 Ez = Ez.at[1:-1, 1:-1].add(...)
-        # 別忘了除以 eps[1:-1, 1:-1] —— 材料唯一進場的位置。
-        raise NotImplementedError("空格 B —— 見本課 README.md")
+        # ====== BLANK B: E interior update (Ampere's law, material here) ==
+        # Mirror the "E interior from curl H" block in fdtd2d.py.
+        # Interior slice assignment: Ez = Ez.at[1:-1, 1:-1].add(...)
+        # Do not forget to divide by eps[1:-1, 1:-1] -- the one and only
+        # place the material enters.
+        raise NotImplementedError(
+            "BLANK B: update the Ez interior from curl H, dividing by eps -- "
+            "see this lesson's README.md")
         # curl = ...
         # Ez = ...
         # ================================================================
 
         Ez = inject(Ez, a)
 
-        # ============ 空格 C:一階 Mur 吸收邊界(四條邊)============
-        # 對照 fdtd2d.py 的四行 Mur。每條邊:
-        #   Ez = Ez.at[邊].set(Ez_old[內鄰] + mur * (Ez[內鄰] - Ez_old[邊]))
-        raise NotImplementedError("空格 C —— 見本課 README.md")
+        # ======= BLANK C: first-order Mur absorbing boundary (4 edges) ====
+        # Mirror the four Mur lines in fdtd2d.py. For each edge:
+        #   Ez = Ez.at[edge].set(Ez_old[inner]
+        #                        + mur * (Ez[inner] - Ez_old[edge]))
+        raise NotImplementedError(
+            "BLANK C: set the four Mur boundary edges -- see this lesson's "
+            "README.md")
         # Ez = ...
         # Ez = ...
         # Ez = ...
         # Ez = ...
         # ================================================================
 
-        # 每步的觀測值(scan 會自動把它們沿時間軸疊起來)
+        # Per-step observables (scan stacks them along the time axis for you)
         out = {"probes": jnp.stack([Ez[p] for p in probes]) if probes
                else jnp.zeros((0,)),
                "energy": 0.5 * (jnp.sum(eps * Ez ** 2) + jnp.sum(Hx ** 2)
@@ -110,7 +125,8 @@ def run(nx, ny, dx, steps, source, probes=(), courant=0.5, eps=None,
             jnp.zeros((nx - 1, ny)))
     (Ez, _, _), ys = jax.lax.scan(step, init, amps)
 
-    # 打包成與 numpy 版一模一樣的輸出(下游程式碼不用知道引擎換了)
+    # Pack into exactly the numpy version's output shape (downstream code
+    # never needs to know the engine changed)
     return {"Ez": np.asarray(Ez), "t": t_axis,
             "probes": {p: np.asarray(ys["probes"][:, i])
                        for i, p in enumerate(probes)},

@@ -135,7 +135,7 @@ def stage_field(cfg, d, defect=None, fstar=0.34):
     """Steady-state field map at an in-gap frequency: the money shot of
     light turning the 90-degree corner."""
     res = phc_bend.toy_field_map(cfg, "bend", defect, fstar)
-    res["title"] = f"90° 彎穩態場 Re Ez  (f = {fstar})"
+    res["title"] = f"90° bend steady-state field Re Ez  (f = {fstar})"
     np.savez(os.path.join(d, "field_bend.npz"), **res)
     print(f"[field] Ez({fstar}) saved -> {d}/field_bend.npz")
     from invdx.viz import plots

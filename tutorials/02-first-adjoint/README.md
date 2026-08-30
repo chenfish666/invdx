@@ -1,74 +1,98 @@
-# 第二課:第一個伴隨梯度 —— 逆向設計治好一個製程缺陷
+> **English** · [繁體中文](README.zh-TW.md)
 
-> **這一課的形式**:整條流程已經寫成一支可直接執行的腳本
-> (`scripts/09_toy_adjoint.py`,參考輸出見 [RESULTS.md](RESULTS.md))。
-> 這份文件講**它在做什麼、為什麼可行**——想親手體驗,腳本每一段
-> 都能單獨改參數重跑。
+# Lesson 2: Your First Adjoint Gradient — Inverse Design Heals a Fabrication Defect
 
-## 這一課回答的問題
+> **How this lesson works**: the whole pipeline is already written as a script
+> you can run right now (`scripts/09_toy_adjoint.py`; reference output in
+> [RESULTS.md](RESULTS.md)). This page explains **what it is doing and why that
+> works** — and if you want to work through it by hand, every stage of the
+> script takes parameters you can change and rerun.
 
-第一課結束時,E 場更新裡有一行 `/ eps`。這一課問:
-**「每個格點的材料,對輸出各有多大影響?」**
+## The question this lesson answers
 
-暴力答案:一個格點挪一點、重跑一次模擬 → N 個參數要 N+1 次模擬。
-設計區 20×20=400 個格點就是 401 次——不可行,這正是 2000 年代
-光子設計只能「手調幾個參數」的原因(shift-or-shrink 的時代背景)。
+At the end of [Lesson 1](../01-jax-port/README.md) there was a `/ eps` sitting
+in the E-field update. This lesson asks the next question:
+**how much does the material at each grid cell change the output?**
 
-伴隨法的答案:**一次正向 + 一次反向 = 全部 N 個參數的梯度**。
-這是逆向設計成立的數學根基,也是 fdtdx/Meep adjoint 在做的事。
-JAX 把它自動化了:第一課的 `lax.scan` 是一個可微分程式,
-`jax.grad` 對它做反向傳播,得到的就是伴隨法——不用手推伴隨場方程。
+The brute-force answer: nudge one cell, rerun the simulation — N parameters
+cost N+1 simulations. A 20×20 = 400-cell design region means 401 runs. Not
+viable, and that is exactly why photonic design in the 2000s meant hand-tuning
+a handful of parameters (the shift-or-shrink era).
 
-## 劇本(scripts/09_toy_adjoint.py)
+The adjoint answer: **one forward pass plus one backward pass gives you all N
+gradients.** This is the mathematical footing inverse design stands on, and it
+is what the adjoint machinery in fdtdx and Meep is doing. JAX automates it: the
+`lax.scan` from Lesson 1 is a differentiable program, and `jax.grad`
+back-propagating through it *is* the adjoint method — no hand-derived adjoint
+field equations required.
 
-1. **弄傷結構**:拿 phc_bend 的 90° 彎,模擬一個製程缺陷——打掉
-   Layer-I 水平缺陷柱(點缺陷掃描裡傷害最大的那根,基準尺寸下
-   ΔT≈−0.46;掃描本身見
-   [docs/phc-bend-walkthrough.md](../../docs/phc-bend-walkthrough.md))。
-2. **畫設計區**:缺陷周圍 2a×2a(20×20 格點),材料連續參數化:
-   `eps = 1 + (eps_rod − 1) · sigmoid(θ)`,起點 = 受損結構本身。
-3. **梯度驗證(G2 精神)**:隨機抽 3 個像素做中央有限差分,
-   跟 `jax.grad` 逐一比對,相對誤差要 < 1e-5 才往下走。
-   **不驗證的梯度不上桌**——這條紀律在本 repo 制度化成 G2 閘門
+## How the script works (scripts/09_toy_adjoint.py)
+
+1. **Damage the structure.** Take the 90° bend from `phc_bend` and simulate a
+   fabrication defect: knock out the Layer-I horizontal rod, the one the
+   point-defect scan singles out as doing the most damage (the scan itself is
+   in [docs/phc-bend-walkthrough.md](../../docs/phc-bend-walkthrough.md)). In
+   this lesson's own setup, that one missing rod drops mean transmission from
+   0.972 to 0.613.
+2. **Draw a design region.** A 2a×2a box around the defect (20×20 grid cells),
+   with the material inside continuously parameterized:
+   `eps = 1 + (eps_rod − 1) · sigmoid(θ)`, starting from the damaged structure
+   itself.
+3. **Check the gradient (the G2 discipline).** Sample 3 pixels at random, take
+   a central finite difference at each, compare them against `jax.grad` one by
+   one, and refuse to go further unless the relative error is below 1e-5.
+   **An unverified gradient does not ship** — in this repo that rule is
+   institutionalized as the G2 gate
    ([src/invdx/gates/g2_gradcheck.py](../../src/invdx/gates/g2_gradcheck.py)),
-   fdtdx 的梯度同樣要先過有限差分比對才算數。
-4. **Adam 迭代**:讓梯度自己決定往設計區的哪裡放材料,
-   看透射從受損值爬回去。
+   and fdtdx gradients have to clear the same finite-difference comparison
+   before they count.
+4. **Run Adam.** Let the gradient decide where to put material in the design
+   region, and watch transmission climb back up from the damaged value.
 
-## 讀程式碼時的三個看點
+## Three things to watch while reading the code
 
-- `simulate()` vs `run()`:可微分路徑必須全程留在 JAX 世界,
-  一轉 numpy 梯度鏈就斷。這是「工程選擇服務物理需求」的實例。
-- `objective = T 的平均`:你改成 `jnp.min`(最差頻率)就是 minimax
-  ——本 repo 的優化器用的正是這個思想
-  ([src/invdx/optimize.py](../../src/invdx/optimize.py) 裡的 softmin
-  是它的光滑版)。
-- 缺陷「治好」的方式不一定是把柱子原樣長回來——梯度只在乎透射,
-  它找到的解可能長得完全不像原本的晶格。這就是逆向設計和
-  「修回原狀」的本質差別。
+- `simulate()` vs `run()`: the differentiable path has to stay inside JAX from
+  end to end — the moment it touches numpy, the gradient chain is cut. This is
+  a clean case of an engineering choice serving a physics requirement.
+- `objective` = the mean of T: swap `jnp.mean` for `jnp.min` (the worst
+  frequency) and you have a minimax objective, which is the idea this repo's
+  optimizer runs on. Its smooth version is `softmin`
+  ([src/invdx/fab/filters_jax.py](../../src/invdx/fab/filters_jax.py)), used to
+  aggregate the per-wavelength figures of merit in
+  [src/invdx/optimize.py](../../src/invdx/optimize.py).
+- Healing the defect does not have to mean growing the rod back. The gradient
+  cares about transmission and nothing else, so the solution it finds may look
+  nothing like the original lattice. That is the difference in kind between
+  inverse design and putting a structure back the way it was.
 
-## 親手玩的入口
+## Trying it by hand
 
 ```bash
-PY=python   # 你的 invdx env 的 python
-$PY scripts/09_toy_adjoint.py --gradcheck-only          # 只看梯度驗證
-$PY scripts/09_toy_adjoint.py --tag mine                # 全流程
-$PY scripts/09_toy_adjoint.py --iters 120 --lr 0.1      # 調優化器
+PY=python   # the python of your invdx env
+$PY scripts/09_toy_adjoint.py --gradcheck-only          # gradient check only
+$PY scripts/09_toy_adjoint.py --tag mine                # the full run
+$PY scripts/09_toy_adjoint.py --iters 120 --lr 0.1      # tune the optimizer
 ```
 
-改 `FSTARS`(目標頻率)、`DEFECT`(換一根柱打掉)、design_box 大小,
-都會得到不同的「治療方案」——每次結果都存進 runs/,可以互相比。
+Change `FSTARS` (the target frequencies), `DEFECT` (knock out a different rod),
+or the size of the design box, and you get a different "treatment plan" every
+time. Every result lands in `runs/`, so you can put them side by side.
 
-## 連回大局
+## Back to the big picture
 
-toy 引擎走到這裡,你擁有了一條**從零親手建立的完整逆向設計鏈**:
-Yee 更新式 → 可微分模擬 → 驗證過的伴隨梯度 → 優化迴圈。
-fdtdx 跑三維元件時,原理一模一樣,只是規模大一萬倍。
+By the end of the toy track you own a **complete inverse-design chain you built
+by hand, from scratch**: Yee update equations → differentiable simulation → a
+verified adjoint gradient → an optimization loop. When fdtdx runs a 3D device
+the principle is identical; only the scale differs, by four orders of
+magnitude.
 
-想再往下走,repo 裡有兩條現成的路:
-[src/invdx/gates/g2_gradcheck.py](../../src/invdx/gates/g2_gradcheck.py)
-是同一套梯度驗證用在 fdtdx 上的版本,可以拿 toy 的結果跟它對照;
-[docs/phc-bend-walkthrough.md](../../docs/phc-bend-walkthrough.md)
-則示範同一個結構在兩套引擎上的交叉驗證。
-另外,toy 用的是一階 Mur 吸收邊界,它的殘餘反射是這條鏈上最粗的
-近似——想更接近成熟求解器的數字,邊界條件是第一個該動的地方。
+Two paths lead further into the repo:
+[src/invdx/gates/g2_gradcheck.py](../../src/invdx/gates/g2_gradcheck.py) is the
+same gradient check applied to fdtdx, so you can hold your toy result up
+against it, and
+[docs/phc-bend-walkthrough.md](../../docs/phc-bend-walkthrough.md) shows the
+same structure cross-validated on two engines.
+One more thing worth carrying with you: the toy uses a first-order Mur
+absorbing boundary, and its residual reflection is the coarsest approximation
+anywhere in this chain — if you want numbers closer to a mature solver's, the
+boundary condition is the first place to look.

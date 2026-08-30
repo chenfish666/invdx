@@ -1,32 +1,36 @@
-# 需要 spack v1.2.0；bootstrap 見 ../bootstrap.sh
+# Requires spack v1.2.0; see ../bootstrap.sh to bootstrap it.
 spack:
   specs:
-    # 專案自帶 package repo(namespace invdx 明確指定,見 repos 區段)
+    # Project-owned package repo (namespace invdx, named explicitly -- see the
+    # repos section below)
     - invdx.meep@1.34.0 +python +mpi +hdf5 +libctl +harminv +mpb +gsl +openmp ~single
-    - "py-numpy@2:"           # 對齊 conda baseline（pymeep 1.34.0 為 numpy 2 世代）
+    - "py-numpy@2:"           # match the conda baseline (pymeep 1.34.0 is numpy-2 era)
     - py-mpi4py
     - py-scipy
     - py-matplotlib
   packages:
     all:
       require:
-        - "target=x86_64_v3"   # 泛用微架構，保留可遷移性
+        - "target=x86_64_v3"   # generic microarch: stays movable between hosts
     mpi:
-      require: [mpich]         # 對齊 conda meep(mpich 4.3.2)，減少 G5 變因
-    # swig 版本釘（曾因 meep<=1.31 與 SWIG 4.1+ 衝突而釘 @=4.0.2）已於
-    # 2026-08-17 bump 到 1.34.0 時解除，用以驗證上游修復；結果見 docs/env.md「Three pits actually fallen into」第 1 條
+      require: [mpich]         # match conda meep (mpich 4.3.2); fewer variables in G5
+    # The swig pin (@=4.0.2, once needed because meep<=1.31 clashed with
+    # SWIG 4.1+) was dropped when this bumped to 1.34.0, deliberately, to
+    # check that the upstream fix holds. It does -- see "Three pits actually
+    # fallen into", item 1, in docs/env.md.
   concretizer:
     unify: true
-    reuse: false               # 乾淨譜系；日後可改 true 省時
+    reuse: false               # clean lineage; flip to true later to save build time
   repos:
     builtin:
       git: https://github.com/spack/spack-packages.git
-      tag: v2026.06.0          # 第二層釘版，缺這行等於沒釘
+      tag: v2026.06.0          # the second-level pin. Without this line the pin above buys nothing.
     invdx: $env/../spack_repo/invdx
   view:
     default:
       root: .spack-env/view
       link: all
-      link_type: hardlink      # 關鍵:symlink 會讓 view 的 bin/python 把 sys.prefix 解回 spack 真實 prefix,見 docs/env.md
+      link_type: hardlink      # Load-bearing: with symlink, the view's bin/python resolves sys.prefix
+      # back to the real spack prefix. See docs/env.md.
   config:
     build_jobs: 32

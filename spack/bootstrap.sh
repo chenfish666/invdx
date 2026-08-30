@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# spack bootstrap for invdx — 可攜，無絕對路徑。
-# 用法：bash spack/bootstrap.sh
+# spack bootstrap for invdx -- portable, no absolute paths.
+# Usage: bash spack/bootstrap.sh
 set -euo pipefail
 
 SPACK_ROOT="${SPACK_ROOT:-$HOME/spack}"

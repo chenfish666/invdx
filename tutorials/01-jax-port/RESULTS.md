@@ -1,35 +1,54 @@
-# 第一課的參考輸出
+> **English** · [繁體中文](RESULTS.zh-TW.md)
 
-空格 A/B/C 的參考解在 [src/invdx/toy/fdtd2d_jax.py](../../src/invdx/toy/fdtd2d_jax.py);
-本檔記錄一次驗收的實際輸出,親手練習時可以對照。
+# Lesson 1 Reference Output
 
-## 驗收輸出(scripts/08_toy_jax_lesson1.py --gpu)
+The reference answers for blanks A/B/C are in
+[src/invdx/toy/fdtd2d_jax.py](../../src/invdx/toy/fdtd2d_jax.py); this file
+records what one real checkpoint run printed, so you have something to hold your
+own run against.
+
+## Checkpoint output (scripts/08_toy_jax_lesson1.py --gpu)
 
 ```
-[case] 光子晶體 bulk 能隙量測,格點 110^2、2000 步(小尺寸,秒級)
-[diff] max|dE| = 8.882e-16, max|dH| = 8.882e-16 (場量級 4.140e-01)
-[time] numpy 0.27s | jax 首跑 1.28s(含編譯)| jax 再跑 0.28s
-[PASS] 兩個引擎逐位元同物理 —— 你的第一個 JAX FDTD 成立。
-[gpu] jax 預設裝置:gpu (<你的顯示卡型號>)
-[gpu] 同一份程式碼零修改跑在 gpu:首跑 0.30s、再跑 0.37s
+[case] photonic-crystal bulk gap measurement, 110^2 grid, 2000 steps (small, runs in seconds)
+[diff] max|dE| = 8.882e-16, max|dH| = 8.882e-16 (field scale 4.140e-01)
+[time] numpy 0.38s | jax first run 1.99s (with compile) | jax rerun 0.34s
+
+[PASS] both engines agree to the last bit -- your first JAX FDTD works.
+       Next lesson (scripts/09): make eps a parameter, push jax.grad
+       through the whole time evolution, then check it against finite differences.
+[gpu] jax default device: gpu (<your GPU model>)
+[gpu] same code, zero edits, on gpu: first run 0.33s, rerun 0.37s
+[gpu] that is the port's second payoff: the numpy version is CPU-only, forever.
 ```
 
-## 數字怎麼讀
+`<your GPU model>` is a placeholder: jax prints the `device_kind` of whichever
+card it found, which is the card's model string. The machine this transcript
+came from printed `Quadro RTX 6000`. The word in front of it is
+`device.platform`, always lowercase `gpu` — never `GPU`, never `cuda`.
 
-- **8.9e-16**:float64 的機器精度(≈2.2e-16)乘上幾步的累積。這不是
-  「兩個引擎很接近」,是「兩個引擎是同一個物理」——每一步浮點運算
-  都相同,只是執行方式不同(直譯 numpy vs XLA 編譯)。
-- **jax 首跑 1.28s vs 再跑 0.28s**:差額 ≈1s 是描圖+編譯,只付一次。
-  同形狀的後續呼叫直接用編譯產物。
-- **GPU 0.37s 沒有比 CPU 0.28s 快**:這個問題太小(110²),塞不滿
-  GPU;搬資料的開銷吃掉了算力優勢。GPU 的回報要在大網格(全尺寸的
-  三維問題動輒數千萬格點)或 float32 時才展現——「小問題別上 GPU」
-  本身就是一課。絕對秒數會隨機器不同,值得看的是比值。
-- **測試轉正**:tests/test_toy_jax.py 從此在每次 `make gates` 盯著
-  兩引擎等價,JAX 版再也不能悄悄偏離 numpy 版。
+## How to read the numbers
 
-## 這一課埋的伏筆
+- **8.9e-16**: float64 machine precision (~2.2e-16) times a few steps of
+  accumulation. This does not say "the two engines are close", it says "the two
+  engines are the same physics" — every floating-point operation is identical,
+  only the way it executes differs (interpreted numpy vs compiled XLA).
+- **jax first run 1.99s vs rerun 0.34s**: the ~1.6s difference is tracing +
+  compilation, and you pay it once. Later calls at the same shapes go straight
+  to the compiled artifact.
+- **GPU 0.37s is no faster than CPU 0.34s**: this problem is too small (110^2)
+  to fill a GPU; moving the data eats the compute advantage. The GPU payoff
+  shows up on big grids (a full-size 3D problem runs to tens of millions of
+  cells) or at float32 — "do not put a small problem on a GPU" is a lesson in
+  itself. Absolute seconds shift from machine to machine; the ratios are what
+  is worth reading.
+- **The test now guards this**: tests/test_toy_jax.py checks the two engines for
+  equivalence on every `make gates` run from here on, so the JAX version can
+  never quietly drift away from the numpy one.
 
-E 場更新裡那個 `/ eps[1:-1, 1:-1]` 現在活在一個 XLA 可微分程式裡。
-第二課(tutorials/02)就對它下手:`jax.grad(透射率)(eps)` 一次拿到
-「每個格點的材料怎麼影響輸出」——伴隨法,自動的。
+## What this lesson sets you up for
+
+That `/ eps[1:-1, 1:-1]` in the E update now lives inside a differentiable XLA
+program. Lesson 2 (`tutorials/02-first-adjoint`) goes straight for it:
+`jax.grad(transmission)(eps)` gets you "how each cell's material affects the
+output" in one shot — the adjoint method, automatically.

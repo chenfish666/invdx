@@ -1,17 +1,22 @@
 #!/usr/bin/env python
-"""第二課主線:第一個伴隨梯度 —— 在文獻經典的光子晶體 90° 彎基準上修復缺陷。
+"""Lesson 2 mainline: your first adjoint gradient -- healing a defect in the
+textbook photonic-crystal 90-degree bend benchmark.
 
-劇本:
-  1. 拿 phc_bend 的彎,打掉基準結構裡傷害最大的 Layer-I 缺陷柱(透射重傷)
-  2. 在缺陷周圍畫一個 2a x 2a 的設計區,材料變成連續參數
+Storyline:
+  1. Take the phc_bend bend, knock out the Layer-I rod whose loss hurts most
+     (transmission drops hard)
+  2. Draw a 2a x 2a design region around the defect; the material there
+     becomes a continuous parameter
      eps = 1 + (eps_rod - 1) * sigmoid(theta)
-  3. jax.grad 穿過整段 FDTD 時間演化,一次拿到設計區每個格點的梯度
-     (這就是伴隨法:一次正向 + 一次反向 = 全部參數的梯度)
-  4. 先用有限差分驗證梯度(invdx 的 G2 精神:梯度不驗證不上桌)
-  5. Adam 迭代,看逆向設計自動把彎「治好」
+  3. jax.grad differentiates through the whole FDTD time evolution, returning
+     the gradient at every design-region pixel in one pass
+     (that is the adjoint method: one forward + one backward = all gradients)
+  4. Verify the gradient by finite differences first (the invdx G2 rule: an
+     unverified gradient does not ship)
+  5. Adam iterations -- watch inverse design heal the bend by itself
 
-  python scripts/09_toy_adjoint.py                  # 全流程(~3 分鐘,CPU)
-  python scripts/09_toy_adjoint.py --gradcheck-only # 只做梯度驗證(~1 分鐘)
+  python scripts/09_toy_adjoint.py                  # full run (~3 min, CPU)
+  python scripts/09_toy_adjoint.py --gradcheck-only # gradient check only (~1 min)
 """
 
 import argparse
@@ -19,7 +24,8 @@ import os
 import sys
 import time
 
-# 決定性優先:課程與梯度驗證都在 CPU + float64(GPU 是之後規模化的事)
+# Determinism first: the lesson and the gradient check both run on CPU +
+# float64 (the GPU is for scaling up later)
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import jax
@@ -34,12 +40,13 @@ from invdx.problems import phc_bend
 from invdx.toy import fdtd2d, fdtd2d_jax
 from invdx import runio
 
-DEFECT = (1, 0)                     # 基準結構 Layer-I 水平缺陷(傷害最大)
-FSTARS = (0.31, 0.34, 0.37)         # 這個尺寸的能隙內三個頻率
+DEFECT = (1, 0)                     # benchmark Layer-I horizontal defect (hurts most)
+FSTARS = (0.31, 0.34, 0.37)         # three in-gap frequencies at this size
 
 
 def build_case(cfg):
-    """量測配置 + 直波導歸一化(numpy 跑一次,當常數)。"""
+    """Measurement setup + straight-waveguide normalization (run once in
+    numpy, then treated as a constant)."""
     ports = phc_bend._toy_ports(cfg)
     fcen = 0.5 * (cfg.f_min + cfg.f_max)
     spread = 1.0 / (np.pi * (cfg.f_max - cfg.f_min) / 2)
@@ -58,7 +65,8 @@ def build_case(cfg):
 
 
 def design_box(cfg):
-    """缺陷周圍 2a x 2a 的格點切片(晶格座標 ix in {c+1,c+2}, iy in {c-1,c})。"""
+    """Grid slice of the 2a x 2a box around the defect (lattice coordinates
+    ix in {c+1,c+2}, iy in {c-1,c})."""
     res, c, pad = cfg.res_per_a, cfg.center, cfg.pad_a
     gx = slice(int((pad + c + 1) * res), int((pad + c + 3) * res))
     gy = slice(int((pad + c - 1) * res), int((pad + c + 1) * res))
@@ -98,23 +106,23 @@ def main():
     objective = jax.jit(lambda th: mean_T(eps_of(th)))
     vg = jax.jit(jax.value_and_grad(lambda th: mean_T(eps_of(th))))
 
-    # 起點 = 受損結構本身(theta 由受損 eps 反推)
+    # start from the damaged structure itself (theta inverted from damaged eps)
     p0 = (np.asarray(eps_damaged[gx, gy]) - 1.0) / (cfg.eps_rod - 1.0)
     p0 = np.clip(p0, 1e-3, 1 - 1e-3)
     theta = jnp.asarray(np.log(p0 / (1 - p0)))
 
     T_damaged = float(objective(theta))
     T_intact = float(mean_T(jnp.asarray(eps_intact)))
-    print(f"[base] 完好的彎  mean T = {T_intact:.3f}")
-    print(f"[base] 受損的彎  mean T = {T_damaged:.3f}   "
-          f"(缺陷 {DEFECT},基準結構 Layer-I)")
+    print(f"[base] intact bend   mean T = {T_intact:.3f}")
+    print(f"[base] damaged bend  mean T = {T_damaged:.3f}   "
+          f"(defect {DEFECT}, benchmark Layer-I)")
 
-    # ---- 梯度驗證(G2 精神:不驗證的梯度不上桌)----
+    # ---- gradient check (G2 rule: an unverified gradient does not ship) ----
     t0 = time.time()
     val, g = vg(theta)
     t_grad = time.time() - t0
-    print(f"[adjoint] 一次反向傳播 = 設計區全部 {g.size} 個參數的梯度  "
-          f"({t_grad:.1f}s,含編譯)")
+    print(f"[adjoint] one backward pass = gradients for all {g.size} "
+          f"design-region parameters  ({t_grad:.1f}s, incl. compile)")
     rng = np.random.default_rng(0)
     idx = [tuple(rng.integers(0, s) for s in g.shape) for _ in range(3)]
     h = 1e-4
@@ -129,15 +137,15 @@ def main():
         print(f"[gradcheck] pixel {ij}: adjoint {ad:+.6e}  "
               f"FD {fd:+.6e}  rel err {rel:.2e}")
     if worst > 1e-5:
-        print("[gradcheck] FAIL — 梯度不可信,停止")
+        print("[gradcheck] FAIL -- gradient not trustworthy, stopping")
         return 1
-    print(f"[gradcheck] PASS(最差 {worst:.2e} < 1e-5)")
+    print(f"[gradcheck] PASS (worst {worst:.2e} < 1e-5)")
     if args.gradcheck_only:
         runio.save_json(os.path.join(d, "results.json"),
                         {"gradcheck_worst_rel": worst})
         return 0
 
-    # ---- 逆向設計:讓梯度自己把彎治好 ----
+    # ---- inverse design: let the gradient heal the bend on its own ----
     import optax
 
     opt = optax.adam(args.lr)
@@ -145,20 +153,21 @@ def main():
     hist = []
     for it in range(args.iters):
         val, g = vg(theta)
-        upd, state = opt.update(-g, state)     # 最大化 → 負梯度給 minimizer
+        upd, state = opt.update(-g, state)     # maximizing -> feed -grad to the minimizer
         theta = optax.apply_updates(theta, upd)
         hist.append(float(val))
         if it % 5 == 0 or it == args.iters - 1:
             print(f"[opt] iter {it:3d}  mean T = {float(val):.3f}")
 
     T_healed = float(objective(theta))
-    print(f"\n[result] 受損 {T_damaged:.3f} → 修復後 {T_healed:.3f} "
-          f"(完好 {T_intact:.3f})")
+    print(f"\n[result] damaged {T_damaged:.3f} -> healed {T_healed:.3f} "
+          f"(intact {T_intact:.3f})")
 
-    # 設計區長什麼樣(每個晶格 cell 的平均密度,0=真空 9=滿柱)
+    # what the design region ended up as (mean density per lattice cell,
+    # 0 = vacuum, 1 = solid rod)
     dens = np.asarray(jax.nn.sigmoid(theta))
     r = cfg.res_per_a
-    print("[design] 修復區密度(2x2 晶格,每格 = 一個 a x a cell):")
+    print("[design] healed-region density (2x2 lattice, one entry = one a x a cell):")
     for jy in range(1, -1, -1):
         row = " ".join(
             f"{dens[ix * r:(ix + 1) * r, jy * r:(jy + 1) * r].mean():.2f}"
