@@ -88,10 +88,15 @@ requirements:     ## throwaway hash-pinned requirements.txt (not tracked)
 	@echo "requirements.txt written -- scratch artifact, do not commit"
 
 # `env-drift` above catches one copy of a fact going stale; this catches the
-# other. 11 documents exist in English and Traditional Chinese, and the docs
-# themselves name "the same fact written twice, only one copy updated" as the
-# failure that produces no error signal. Without this target the 11 pairs are
-# 11 future divergences.
+# other. Every document that exists in both English and Traditional Chinese is
+# a pair, and the docs themselves name "the same fact written twice, only one
+# copy updated" as the failure that produces no error signal. Without this
+# target each pair is a future divergence.
+#
+# How many pairs there are is deliberately NOT written here: the checker counts
+# them and prints the list every run, so the number lives in output that is
+# regenerated rather than in a comment somebody has to remember to update. This
+# comment used to say "11" and the answer had moved on.
 #
 # Plain python3, not $(PY): the script is stdlib-only on purpose, so a docs
 # check runs on a bare clone before any environment exists. Making a Markdown
@@ -105,7 +110,7 @@ bilingual:        ## check the English/Chinese doc pairs for mechanical drift
 	@python3 scripts/check_bilingual.py --self-test
 	@python3 scripts/check_bilingual.py
 
-check:            ## gate G0 only: pure-python unit tests (~5 min, CPU)
+check:            ## gate G0 only: pure-python unit tests (a few minutes, CPU)
 	$(PY) scripts/00_check.py --only unit
 
 gates:            ## all validation gates in order (G0..G5)

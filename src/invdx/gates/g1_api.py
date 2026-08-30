@@ -8,17 +8,16 @@ exists, that the subprocess bridge answers a ping.
 
 import os
 
-from .runner import GateResult
+from .runner import GateResult, NoProblem
 
 NAME = "api"
 ORDER = 1
 REQUIRES = ()
-# This gate measures no problem module, so it owes the report no
-# `problem` / `problem_module` keys. Declared, not inferred: the runner
-# requires the two identity keys from every gate by default, precisely so
-# that a gate author who writes nothing gets a loud complaint instead of a
-# silent exemption. See `runner._declared_problem`.
-MEASURES_PROBLEM = False
+MEASURES_PROBLEM = NoProblem(
+    "G1 asks the installed toolchain what it exports -- the fdtdx names "
+    "below, whether JAX sees a GPU, whether the meep bridge answers a ping. "
+    "Its answers describe the environment and would be identical with no "
+    "problem module on disk at all")
 
 # every fdtdx name invdx code touches; extend when the adapter grows.
 # targets the RELEASED fdtdx (no UniformGrid — that's post-0.6.2 dev API)

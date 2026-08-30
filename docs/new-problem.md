@@ -8,8 +8,8 @@ known answer, gated, and — if you want it — optimizable".
 
 It is a how-to, not an API reference. Every step ends with a command that
 tells you whether the step worked. The worked example is a real problem
-module, about 80 lines, that ends up agreeing with a closed-form answer to
-1% in half a minute of CPU time.
+module, short enough to be printed in full below, that ends up agreeing with a
+closed-form answer to 1% in half a minute of CPU time.
 
 Prerequisite: `make check` passes. If it does not, start at
 [`env.md`](env.md) instead.
@@ -39,7 +39,7 @@ PROBLEM = ProblemSpec(
 ```
 
 Neither gate slot has a default, so "I forgot" is an import error rather than
-a quiet loss of coverage. `problems.load("<yourname>")` reads that declaration
+a quiet loss of coverage. `problems.load("<your_problem>")` reads that declaration
 after you add your module to the registry dict in
 `src/invdx/problems/__init__.py`; `load` also accepts a dotted module path, so
 a problem living outside this repo can be gated without being vendored in.
@@ -49,15 +49,18 @@ Details and the exact types: [`src/invdx/problems/contract.py`](../src/invdx/pro
 else's name to write one.** Whatever `load` was asked for *is* the name — the
 registry key, or the last segment of the dotted path
 (`yourpkg.problems.spiral` is named `spiral`) — and `load` stamps it onto the
-spec it hands back. Writing it out a third time, next to the module path and
+spec it hands back. `<your_problem>` on this page is a stand-in for whatever
+you pick, never for anybody else's problem: no step below needs the name of a
+problem you did not write. Writing it out a third time, next to the module path and
 the registry key, would be a copy with no derivation and nothing comparing
 it. If you declare a `name=` anyway and it disagrees with the name you loaded
 under, `load` raises rather than quietly correcting you; and a dotted path
 whose last segment is a *registered* problem's name —
 `yourpkg.problems.grating_coupler` — is refused before it is imported,
 whatever the module does or does not declare. Both refusals protect the same
-thing: the name is the key the gate reports are filed under (`<name>_f0`,
-`<name>_fd_checks`, `<name>_sampling`, `details["problem"]`), so a wrong one
+thing: the name is the key the gate reports are filed under
+(`<your_problem>_f0`, `<your_problem>_fd_checks`,
+`<your_problem>_sampling`, `details["problem"]`), so a wrong one
 puts your numbers under a shipped problem's label in `gates_report.json`.
 Neither rule touches a problem with a name of its own — `spiral`, `mmi`,
 `tmm_stack` all load from anywhere.
@@ -93,9 +96,45 @@ alone without loading anything, and fails the gate if the result disagrees
 `[FAIL]`, whose own diagnosis must not be buried under a provenance
 complaint). That second check is on by default for **every** gate, including
 one written next year by someone who never read this page; a gate that
-measures no problem declares `MEASURES_PROBLEM = False` to be excused.
-Nothing you write in a problem module can turn it off, and nothing you *fail*
-to write in one can either.
+measures no problem is excused only by saying, in its own module, what it
+measures instead:
+
+```python
+from invdx.gates import NoProblem      # inside the package: from .runner import NoProblem
+
+MEASURES_PROBLEM = NoProblem(
+    "G3 checks flux conservation in an EMPTY cell: ... there is no device "
+    "in it to attribute `flux_in`, `flux_out` or their ratio to")
+```
+
+Nothing you write in a problem module can turn that off, and nothing you
+*fail* to write in one can either.
+
+The command that tells you the declaration is well formed — it constructs,
+and an empty reason does not:
+
+```bash
+uv run python -c "
+from invdx.gates import NoProblem
+print(NoProblem('G3 checks flux conservation in an EMPTY cell'))
+try:
+    NoProblem('')
+except ValueError as e:
+    print('empty reason refused:', str(e).split(':')[0])
+"
+```
+
+The reason is mandatory, and an empty one raises the same way an empty
+`Unsupported(...)` does. The excuse used to be the bare constant
+`MEASURES_PROBLEM = False`, which is where this rule comes from: an audit
+copied G3's declaration — comment block and all — into a new gate that really
+did measure a device, and the gate reported its numbers, stamped no identity
+and printed `[ok]`. Three characters that are correct in four modules cannot
+be wrong in a fifth. A sentence about an empty cell can, and a reviewer sees
+it sitting next to the coupling efficiencies. That is the whole of what this
+buys: the copy becomes **visible**, not impossible — the same boundary as the
+section just below. The one thing it does enforce is that `False` no longer
+parses, so nobody carries the old spelling forward by accident.
 
 `--problem` is the usual source of that truth but not the only one: a gate
 that always measures one particular problem, whatever was asked for, declares
@@ -162,7 +201,7 @@ opt-in, and each is a separate day of work. Do not start with them.
 
 The smallest complete example is
 [`tests/fixture_problems/tmm_stack.py`](../tests/fixture_problems/tmm_stack.py):
-~150 lines, no engine, no GPU, and it earns both gates. It lives under
+no engine, no GPU, and it earns both gates. It lives under
 `tests/` rather than `problems/` because it is a contract fixture, not a
 device anyone designs.
 
@@ -172,8 +211,8 @@ device anyone designs.
 
 | copy from | when | why |
 |---|---|---|
-| [`src/invdx/problems/phc_bend.py`](../src/invdx/problems/phc_bend.py) (262 lines) | your problem runs on the toy 2D engine and/or Meep, on CPU | numpy-pure — it imports no jax and no fdtdx, which is exactly what lets `engines/meep_worker.py` import it *inside* the Meep environment so both engines consume one geometry definition. Config + geometry + a handful of ratio measurements, nothing else. |
-| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) (2330 lines) | your problem needs the fdtdx GPU engine and/or adjoint gradients | do not copy the file. Copy sections. |
+| [`src/invdx/problems/phc_bend.py`](../src/invdx/problems/phc_bend.py) | your problem runs on the toy 2D engine and/or Meep, on CPU | numpy-pure — it imports no jax and no fdtdx, which is exactly what lets `engines/meep_worker.py` import it *inside* the Meep environment so both engines consume one geometry definition. Config + geometry + a handful of ratio measurements, nothing else. |
+| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) | your problem needs the fdtdx GPU engine and/or adjoint gradients | by far the longest module in the repo, and most of that length is one device's measurement chain: do not copy the file. Copy sections. |
 
 `phc_bend` is the better model for the *shape* of a problem module. `grating_coupler` is
 the reference for the shape of an fdtdx measurement chain; these are the
@@ -195,7 +234,7 @@ style, and points at the `grating_coupler` equivalent at each step.
 
 ## Step 1 — the config subclass
 
-Create `src/invdx/problems/<yourname>.py` and start with the config. Nothing
+Create `src/invdx/problems/<your_problem>.py` and start with the config. Nothing
 tweakable may live anywhere else: scripts never hardcode numbers, because
 `cli.start_run` snapshots `config.json` and that snapshot is what makes a run
 reproducible months later.
@@ -589,7 +628,7 @@ error, write that guard now. It is much cheaper than finding it in a result.
 
 ## Step 6 — tests, which G0 picks up for free
 
-Put tests in `tests/test_<yourname>.py`. Nothing needs registering:
+Put tests in `tests/test_<your_problem>.py`. Nothing needs registering:
 [`gates/g0_unit.py`](../src/invdx/gates/g0_unit.py) runs pytest over the whole
 `tests/` directory, so a file dropped there is in the gate from the next run
 onwards.
@@ -672,8 +711,8 @@ Both cases are declared in your module's `PROBLEM`, and both are checked by
 running the real gate:
 
 ```bash
-uv run python scripts/00_check.py --only reciprocity --problem <yourname>
-uv run python scripts/00_check.py --only gradcheck   --problem <yourname>
+uv run python scripts/00_check.py --only reciprocity --problem <your_problem>
+uv run python scripts/00_check.py --only gradcheck   --problem <your_problem>
 ```
 
 If a gate genuinely has nothing to check on your problem, say so **in code,
@@ -964,16 +1003,16 @@ A new problem is finished when each of these prints what it should:
 
 | # | done means | command |
 |---|---|---|
-| 1 | the config round-trips and rejects typos | `uv run python scripts/<NN>_<name>.py --set nonsense=1` → `unknown config key` |
+| 1 | the config round-trips and rejects typos | `uv run python scripts/<NN>_<your_problem>.py --set nonsense=1` → `unknown config key` |
 | 2 | the geometry is what you meant | `--stage eps`, then look at the array or the rendered map |
 | 3 | the measurement and its normalization run differ only in the structure | read your own `_run`: same grid, same steps, same ports |
 | 4 | the result agrees with an anchor you did not fit | your `--stage measure` prints the anchor comparison |
-| 5 | geometry invariants are pinned by tests | `uv run python -m pytest tests/test_<name>.py -q` |
+| 5 | geometry invariants are pinned by tests | `uv run python -m pytest tests/test_<your_problem>.py -q` |
 | 6 | the whole suite still passes | `make check` |
-| 7 | the anchor is enforced automatically, not by memory | `uv run python scripts/00_check.py --only <name>` → `[ok]` |
+| 7 | the anchor is enforced automatically, not by memory | `uv run python scripts/00_check.py --only <your_problem>` → `[ok]` |
 | 8 | someone else can rerun your result from the run directory alone | `runs/<dir>/config.json` + `cmdline.txt` reproduce it |
 | 9 | *(inverse design only)* the gradient is checked against finite differences before any long run | `richardson_fd_check` at production settings |
-| 10 | both problem-specific gates have an answer, and it is the answer you meant | `--only gradcheck --problem <name>` and `--only reciprocity --problem <name>` → `[ok]`, or `[n/a]`/`[part]` printing the reason you wrote |
+| 10 | both problem-specific gates have an answer, and it is the answer you meant | `--only gradcheck --problem <your_problem>` and `--only reciprocity --problem <your_problem>` → `[ok]`, or `[n/a]`/`[part]` printing the reason you wrote |
 
 If 4 and 7 are missing, you have a simulation, not a measurement.
 

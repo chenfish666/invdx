@@ -271,19 +271,79 @@ def gate_details(spec, measured, supplied=None, source=None):
                               supplied, owned)
 
 
+@dataclass(frozen=True)
+class NoProblem:
+    """A gate's declaration that it measures no problem, and why not.
+
+    Same shape, and the same argument, as a problem's `Unsupported(reason)`:
+    the two are the opt-outs of this package, one written by a problem about a
+    gate and one by a gate about problems in general, so they read alike on
+    purpose.
+
+    WHY A REASON. The opt-out used to be the bare constant
+    `MEASURES_PROBLEM = False`, whose polarity was right -- writing nothing
+    lands on the checked side -- but whose CONTENT was the same five words in
+    four modules. An audit copied G3's declaration, comment block and all, into
+    a new gate that really did measure a coupler; the gate reported `CE_fwd_dB`
+    and `CE_rev_dB`, stamped no identity, and printed `[ok]` without a word.
+    Nothing in `False` could have objected, because `False` says nothing about
+    the gate it is written in: the same three characters are correct in every
+    module that measures no device and wrong in every module that measures one,
+    and no reader can tell which they are looking at.
+
+    A reason cannot be neutral in that way. It names THIS gate's subject --
+    an empty cell, the installed toolchain, a slab the gate hard-codes -- so
+    carrying it into a gate that measures a device puts a visibly false
+    sentence next to the numbers. That is the whole of the claim being made
+    here, and it is worth stating its size: this makes a copied opt-out
+    READABLE as wrong, in review and in the module itself. It does not make
+    copying impossible, and nothing in this process could -- a reason is a
+    string, and the interpreter cannot know whether it describes the module it
+    was typed in. Read `runner.py`'s header for the same boundary drawn around
+    the rest of this layer.
+
+    The reason is checked at construction, exactly like `Unsupported`, so an
+    empty one is a failure at import of the gate module rather than a silent
+    exemption discovered later.
+    """
+
+    reason: str
+
+    def __post_init__(self):
+        if not str(self.reason).strip():
+            raise ValueError(
+                "NoProblem(reason=...) needs a reason: it is the only thing "
+                "that distinguishes a gate which owes no provenance from a "
+                "gate whose author copied the opt-out from next door. Say "
+                "what THIS gate measures instead of a problem -- an empty "
+                "cell, the installed toolchain, a device the gate hard-codes.")
+
+
 def _declared_problem(gate_name, gate):
     """Resolve a gate's `MEASURES_PROBLEM`, defaulting to "it measures one".
 
-        absent    the same as True. See below -- this is the whole design.
-        True      the gate measures whatever `--problem` asked for -- G2, G4
-                  and anything else parameterized the ordinary way.
-        False     the gate measures no problem (G0/G1/G3/G5). Nothing is
-                  required; a stamped identity is still checked, because a
-                  gate that stamps one has made a claim.
-        "<name>"  the gate always measures this particular problem, whatever
-                  `--problem` says. A cross-problem gate is honest and used
-                  to be failed here for it, with a message accusing it of
-                  letting a problem name itself.
+        absent      the same as True. See below -- this is the whole design.
+        True        the gate measures whatever `--problem` asked for -- G2, G4
+                    and anything else parameterized the ordinary way.
+        NoProblem(  the gate measures no problem (G0/G1/G3/G5), and says what
+          reason)   it measures instead. Nothing is required; a stamped
+                    identity is still checked, because a gate that stamps one
+                    has made a claim. Returned as the instance, so the caller
+                    can tell this apart from `True` -- and so that `False`,
+                    which this used to be, is not something the caller could
+                    still be handed.
+        "<name>"    the gate always measures this particular problem, whatever
+                    `--problem` says. A cross-problem gate is honest and used
+                    to be failed here for it, with a message accusing it of
+                    letting a problem name itself.
+
+    `False` is refused, loudly, with the replacement spelled out. It was the
+    opt-out until `NoProblem` replaced it, so during any upgrade it is a
+    declaration a person genuinely believes in -- and both silent readings of
+    it are worse than a failure. Accepting it keeps the copyable constant
+    alive; ignoring it (falling through to "measures a problem") would fail
+    four working gates with a message about missing identity keys, which is a
+    diagnosis pointing away from the actual edit.
 
     WHY ABSENT MEANS True. This flag used to be opt-IN: a gate said
     `MEASURES_PROBLEM = True` to be checked, and a gate that said nothing was
@@ -297,13 +357,18 @@ def _declared_problem(gate_name, gate):
 
     Reversed, "forgot" lands on the safe side. A new gate that declares
     nothing is asked for provenance: loud, and a one-line fix either way,
-    because the author either stamps the identity or writes
-    `MEASURES_PROBLEM = False`. And if someone deletes the declaration from
-    G0/G1/G3/G5, those gates fail loudly rather than silently -- a false
-    alarm, which is the direction an error should point.
+    because the author either stamps the identity or writes a
+    `NoProblem(...)`. And if someone deletes the declaration from G0/G1/G3/G5,
+    those gates fail loudly rather than silently -- a false alarm, which is the
+    direction an error should point.
 
-    Anything else raises. A value that is not exactly `True`, `False` or a
-    non-empty exact `str` is a declaration nobody can act on -- and a `str`
+    That polarity was never the whole problem, though, and the second half is
+    what `NoProblem` is for: writing nothing was loud, but writing the same
+    `False` as the module next door was silent, and copying is what people
+    actually do. `NoProblem`'s docstring has the audit that found it.
+
+    Anything else raises. A value that is not exactly `True`, a `NoProblem` or
+    a non-empty exact `str` is a declaration nobody can act on -- and a `str`
     subclass in particular would carry its own `__eq__` into the comparison
     the caller then makes, which is the move this file refuses everywhere
     else it appears.
@@ -311,8 +376,26 @@ def _declared_problem(gate_name, gate):
     declared = getattr(gate, "MEASURES_PROBLEM", None)
     if declared is None:
         return True                 # not declared: held to the default
-    if declared is True or declared is False:
+    if declared is True:
         return declared
+    if isinstance(declared, NoProblem):
+        return declared             # the instance: the reason travels with it
+    if declared is False:
+        raise ValueError(
+            f"gate {gate_name!r} declares MEASURES_PROBLEM = False, which was "
+            f"the opt-out and is no longer accepted.\n"
+            f"  Write the reason the constant could not carry:\n"
+            f"    MEASURES_PROBLEM = NoProblem(\"what this gate measures "
+            f"instead of a device -- an empty cell, the installed toolchain, "
+            f"a structure the gate hard-codes\")\n"
+            f"  `False` was the same three characters in four gate modules, "
+            f"so it was correct wherever it was typed and stayed correct-"
+            f"looking wherever it was copied. A sentence about THIS gate's "
+            f"subject reads as false in a gate that measures a device.\n"
+            f"  It is refused rather than accepted-as-before or ignored: "
+            f"accepting it keeps the copyable constant alive, and ignoring it "
+            f"would fail this gate for missing identity keys, pointing a "
+            f"reader away from the line that actually needs editing.")
     if type(declared) is str and declared.strip():
         return declared
     raise ValueError(
@@ -321,8 +404,9 @@ def _declared_problem(gate_name, gate):
         f"may be.\n"
         f"  True (or nothing at all): this gate measures whatever "
         f"`--problem` asked for.\n"
-        f"  False: this gate measures no problem, and owes no identity keys."
-        f"\n  '<name>': this gate always measures that one problem, whatever "
+        f"  NoProblem('why not'): this gate measures no problem, and owes no "
+        f"identity keys. The reason is mandatory and is about THIS gate.\n"
+        f"  '<name>': this gate always measures that one problem, whatever "
         f"`--problem` says.\n"
         f"  A str SUBCLASS is refused with everything else: it would answer "
         f"the comparisons made about it on its own behalf. Use a plain str.")
@@ -365,8 +449,8 @@ def _verify_problem_identity(gate, res, args):
         below would otherwise be answered by the value being checked -- the
         move a lying gate makes, since it owns that value;
       * a stamped identity is always checked, on any status;
-      * a MISSING identity is a failure unless the gate declared
-        `MEASURES_PROBLEM = False`, or the result is already a failure. A
+      * a MISSING identity is a failure unless the gate declared a
+        `NoProblem(reason)`, or the result is already a failure. A
         gate that failed before it got as far as loading anything has a real
         reason in its result, and burying that under a provenance complaint
         would replace the diagnosis with a lecture.
@@ -377,7 +461,8 @@ def _verify_problem_identity(gate, res, args):
     record and a claim that this layer exists to keep. The gate's author
     fixes it once; a reader of a report never has to wonder which of the two
     it is looking at. The same reasoning rules out inferring the opt-out:
-    `MEASURES_PROBLEM = False` has to be typed by a person.
+    a `NoProblem(reason)` has to be typed by a person, and the reason has to
+    be typed about the gate it is typed in.
 
     It can only police the two identity keys, because those are the only ones
     whose true value the runner can obtain independently. Gate-measured
@@ -405,11 +490,12 @@ def _verify_problem_identity(gate, res, args):
                     f"  Fix: build `details` with runner.gate_details(spec, "
                     f"...); it stamps `str` values from the loaded spec.")
             stamped[k] = v
-    if declared is False and not stamped:
+    measures_none = isinstance(declared, NoProblem)
+    if measures_none and not stamped:
         return                      # a gate that declared it measures none
 
     from invdx import problems      # local: gates that need it import it too
-    if declared is True or declared is False:
+    if declared is True or measures_none:
         name, module = problems.identity_from_args(args)
         asked = "--problem"
     else:
@@ -418,7 +504,7 @@ def _verify_problem_identity(gate, res, args):
     truth = {"problem": name, "problem_module": module}
 
     missing = sorted(set(ID_KEYS) - set(stamped))
-    if missing and declared is not False and res.status != FAIL:
+    if missing and not measures_none and res.status != FAIL:
         says = ("did not declare what it measures, so it is held to the "
                 "default (`--problem`)"
                 if getattr(gate, "MEASURES_PROBLEM", None) is None
@@ -438,11 +524,16 @@ def _verify_problem_identity(gate, res, args):
             f"runner.gate_details(spec, ...), which stamps both from the "
             f"spec `problems.load` returned. Expected {truth}.\n"
             f"    it measures no problem, like G0/G1/G3/G5: write "
-            f"MEASURES_PROBLEM = False in the gate module. The runner will "
+            f"MEASURES_PROBLEM = NoProblem(\"...\") in the gate module, "
+            f"saying what it measures INSTEAD of a device. The runner will "
             f"not infer that for you -- being asked for provenance you do "
             f"not owe is a loud false alarm you fix in one line, while "
             f"being exempted by default is a silent gap that looks exactly "
-            f"like a correct report.")
+            f"like a correct report. The reason is required for the same "
+            f"kind of reason the declaration is: a bare constant is correct "
+            f"in every module and so says nothing about the one it is in, "
+            f"and an opt-out copied from a neighbouring gate reads as "
+            f"correct until someone types out why.")
 
     wrong = {k: (v, truth[k]) for k, v in stamped.items() if v != truth[k]}
     if wrong:
@@ -560,9 +651,9 @@ def not_applicable(gate_name, spec, reason):
     case. A plain string is still accepted here, and the result then honestly
     lacks `problem_module` rather than inventing one -- but read that as a
     signature this function has not removed, not as a usable path: since the
-    backstop's polarity was inverted, any gate that has not declared
-    `MEASURES_PROBLEM = False` fails on the missing key, and a gate that HAS
-    declared it has no reason to call this. And the string it passes is still
+    backstop's polarity was inverted, any gate that has not declared a
+    `NoProblem(reason)` fails on the missing key, and a gate that HAS
+    declared one has no reason to call this. And the string it passes is still
     compared against what `--problem` resolves to, so it has to spell that
     name exactly -- an odd thing for a gate that measures no problem to get
     right by accident. So the string form is reachable only from a gate that

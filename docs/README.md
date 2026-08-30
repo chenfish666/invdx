@@ -16,15 +16,39 @@ tree, and a Chinese form it binds to an English term may not appear where that
 term is missing. Each check prints what it looked at, so a shrinking
 denominator is visible. It does not check prose; only a cold read does that.
 
+A rule this page and the top-level `README.md` are held to for the same
+reason — stated as the rule it is, not as a description of the whole tree,
+because one page named below does not yet meet it: **a precise count does not
+go into prose that nobody regenerates.** How many unit tests there are, how
+many bilingual pairs, how many lines a module runs to — each of those was
+written out by hand once and was wrong within weeks, and a stale number reads
+exactly like a fresh one. So a count on these two pages either comes from the
+command that computes it (`--problem`'s help line lists the registered
+problems; `make bilingual` prints the pairs it found and fails when a floor
+drops; `make runs` lists the run directories) or it is replaced by the
+qualitative claim it was standing in for. The counts that do survive in prose
+are the ones a reader can falsify without leaving the page: "six gates" stays
+because all six are named, one per row, in the table under the sentence and
+again in the workflow diagram, so a seventh gate makes the word visibly wrong.
+"178 tests" did not stay, because nothing on the page could ever contradict it.
+
+The known exception is [`dependencies.md`](dependencies.md), which still
+carries three hand-written counts — the Python environment's package total,
+the native environment's, and the number of `nvidia-*` wheels. Nothing
+regenerates them: each is a `grep -c` away from `uv.lock` or
+`spack/env/spack.lock`, and until that is wired in they are only as fresh as
+the last person who re-derived them. Bringing that page under the rule is a
+known to-do, not an oversight this paragraph is unaware of.
+
 ## Terminology
 
 - [`glossary.md`](glossary.md) — the terms the Chinese docs bind, and why:
   one concept that acquired two Chinese names, collisions where the obvious
   Chinese word already means something else, terms deliberately left in
-  English, and the symbols that must be defined at first use. Grown from six
-  cold reads, not from foresight. It holds rulings only — claims about what
-  any file currently says are recomputed by `make bilingual` instead, because
-  this page causes the revisions that would falsify them.
+  English, and the symbols that must be defined at first use. Grown from
+  repeated cold reads, not from foresight. It holds rulings only — claims
+  about what any file currently says are recomputed by `make bilingual`
+  instead, because this page causes the revisions that would falsify them.
   **Languages:** English · [繁體中文](glossary.zh-TW.md).
 
 ## Tutorials

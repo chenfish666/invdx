@@ -624,8 +624,8 @@ def test_the_backstop_leaves_a_gate_that_measures_no_problem_alone():
     """G0/G1/G3/G5 stamp no identity -- but only because they SAY so.
 
     The exemption is not "no identity keys present"; it is the gate module's
-    own `MEASURES_PROBLEM = False`. The real module is used rather than a
-    stand-in, so this test also fails if that line is deleted from G0.
+    own `MEASURES_PROBLEM = NoProblem(...)`. The real module is used rather
+    than a stand-in, so this test also fails if that line is deleted from G0.
     """
     res = runner.GateResult(g0.NAME, runner.OK, {"pytest_exit_code": 0})
     runner._verify_problem_identity(g0, res, _Args(FORGER))       # no raise
@@ -1271,14 +1271,17 @@ def test_green_the_same_gate_is_now_asked_where_its_numbers_came_from(
     exc = res.details["exception"]
     assert "problem_module" in exc, "what is missing"
     assert "gate_details" in exc, "how to supply it, if it measures a problem"
-    assert "MEASURES_PROBLEM = False" in exc, "how to opt out, if it does not"
+    assert "MEASURES_PROBLEM = NoProblem(" in exc, (
+        "how to opt out, if it does not -- spelled with its argument, so the "
+        "message cannot be satisfied by a constant")
 
 
 def test_the_gate_is_let_through_by_declaring_the_opt_out(monkeypatch):
     """The escape hatch exists and is one line -- it is just not the default."""
 
     class _Declared(_ForgotToDeclare):
-        MEASURES_PROBLEM = False
+        MEASURES_PROBLEM = runner.NoProblem(
+            "this fixture reports two numbers it made up, from no scene")
 
     monkeypatch.setattr(runner, "discover", lambda: [_Declared()])
     res, = runner.run_gates(BaseConfig(), _Args(FIXTURE))
@@ -1313,7 +1316,32 @@ def test_a_gate_that_measures_no_problem_says_so_in_its_own_module(mod):
     assert "MEASURES_PROBLEM" in vars(mod), (
         f"{mod.__name__} carries no declaration of its own and would be "
         f"held to the default (it measures whatever `--problem` asked for)")
-    assert vars(mod)["MEASURES_PROBLEM"] is False
+    declared = vars(mod)["MEASURES_PROBLEM"]
+    assert isinstance(declared, runner.NoProblem), (
+        f"{mod.__name__} must opt out with a reason, not a constant: "
+        f"{declared!r}")
+    assert declared.reason.strip()
+
+
+def test_the_four_exempt_gates_do_not_share_one_reason():
+    """The point of the reason is that it is about the gate it is typed in.
+
+    Four copies of one sentence would be `MEASURES_PROBLEM = False` again,
+    spelled longer: correct in each module only because it says nothing about
+    any of them. This asserts they are distinct, and that each names something
+    from its own module -- what it measures INSTEAD of a device.
+    """
+    reasons = {mod.__name__: vars(mod)["MEASURES_PROBLEM"].reason
+               for mod in (g0, g1, g3, g5)}
+    assert len(set(reasons.values())) == 4, reasons
+
+    # One word each that could not honestly appear in the other three.
+    for mod_name, word in [("g0_unit", "pytest"),
+                           ("g1_api", "toolchain"),
+                           ("g3_physics", "EMPTY cell"),
+                           ("g5_crossengine", "slab")]:
+        subject = next(r for n, r in reasons.items() if n.endswith(mod_name))
+        assert word in subject, (mod_name, word, subject)
 
 
 @pytest.mark.parametrize("mod", [g0, g1, g3, g5])
@@ -1347,6 +1375,187 @@ def test_a_declaration_that_is_none_of_the_three_forms_is_refused(bad):
     gate = types.SimpleNamespace(NAME="odd", MEASURES_PROBLEM=bad)
     with pytest.raises(ValueError, match="MEASURES_PROBLEM"):
         runner._declared_problem("odd", gate)
+
+
+# --------------------------------------------------------------------------
+# The opt-out has to carry a reason
+#
+# The polarity above put "forgot" on the safe side. It did nothing about the
+# other way a guard gets switched off, which is copying: `MEASURES_PROBLEM =
+# False` was the same three characters in four modules, so it was correct
+# wherever it was typed AND wherever it was pasted. These pin the replacement.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t "])
+def test_an_opt_out_with_no_reason_is_refused_at_construction(blank):
+    """Same rule as `Unsupported`, for the same reason and at the same time.
+
+    At construction, so a gate module that tries it fails at IMPORT -- before
+    the runner ever gets a chance to read the declaration as a valid opt-out.
+    """
+    with pytest.raises(ValueError, match="needs a reason"):
+        runner.NoProblem(blank)
+
+
+def test_the_old_bare_False_is_refused_and_the_message_says_what_to_write():
+    """Neither accepted nor ignored: both silences are worse than a failure.
+
+    Accepted, the copyable constant survives the change that was made to
+    remove it. Ignored -- falling through to "it measures a problem" -- four
+    working gates would fail complaining about missing identity keys, which
+    sends the reader looking at `details` instead of at the one line that
+    needs editing.
+    """
+    gate = types.SimpleNamespace(NAME="oldstyle", MEASURES_PROBLEM=False)
+    with pytest.raises(ValueError) as exc:
+        runner._declared_problem("oldstyle", gate)
+    msg = str(exc.value)
+    assert "NoProblem(" in msg, "the replacement, spelled out"
+    assert "no longer accepted" in msg
+    assert "identity" not in msg.split("NoProblem(")[0], (
+        "it must not be diagnosed as a provenance problem: the fix is here")
+
+
+def test_a_new_gate_that_writes_nothing_is_still_asked_where_numbers_came_from(
+        monkeypatch):
+    """The polarity is unchanged by any of this.
+
+    Requiring a reason from the opt-out would be worth nothing if it also
+    made silence an opt-out. `_ForgotToDeclare` declares nothing at all and
+    must still fail.
+    """
+    monkeypatch.setattr(runner, "discover", lambda: [_ForgotToDeclare()])
+    res, = runner.run_gates(BaseConfig(), _Args(FIXTURE))
+    assert res.status == runner.FAIL
+    assert "MEASURES_PROBLEM = NoProblem(" in res.details["exception"]
+
+
+class _CopiedFromG3:
+    """The audit probe: G3's opt-out, pasted into a gate that measures a device.
+
+    Nothing here is invented. `MEASURES_PROBLEM` is read off the real G3
+    module, which is what "copy the file header" produces, and the rest is an
+    ordinary problem-measuring gate -- it loads what `--problem` asked for,
+    reports two coupling efficiencies, and stamps no identity.
+
+    Read what the two tests below do and do not claim. This gate still passes
+    the runner's type check after the change, because a reason is a string and
+    nothing in this process can know whether it describes the module it was
+    typed in. What changed is that the string is now IN the module, next to
+    `CE_fwd_dB`, saying there is no device in the scene.
+    """
+
+    NAME = "copied"
+    ORDER = 99
+    MEASURES_PROBLEM = g3.MEASURES_PROBLEM       # literally G3's declaration
+
+    def run(self, cfg, args):
+        spec = problems.from_args(args)
+        case = spec.reciprocity_case()
+        return runner.GateResult(self.NAME, runner.OK,
+                                 {"CE_fwd_dB": case.fwd_dB,
+                                  "CE_rev_dB": case.rev_dB})
+
+
+def _pre_noproblem_verify(gate, res, args):
+    """`_verify_problem_identity` as it stood while the opt-out was `False`.
+
+    Reproduced rather than described, the same way `_opt_in_verify` above is:
+    asserting that today's code is right says nothing about whether the code
+    it replaced was wrong. Trimmed of its error prose; the `is False` tests
+    are the shape being demonstrated, and the declaration is read with a bare
+    `getattr` because that is what the resolver of the day did with it.
+    """
+    gate_name = getattr(gate, "NAME", gate)
+    declared = getattr(gate, "MEASURES_PROBLEM", None)
+    if declared is None:
+        declared = True                 # absent: held to the default
+    stamped = {k: res.details[k] for k in runner.ID_KEYS if k in res.details}
+    if declared is False and not stamped:
+        return                          # <-- the copied constant lands here
+    if declared is True or declared is False:
+        name, module = problems.identity_from_args(args)
+    else:
+        name, module = problems.requested_identity(declared)
+    truth = {"problem": name, "problem_module": module}
+    missing = sorted(set(runner.ID_KEYS) - set(stamped))
+    if missing and declared is not False and res.status != runner.FAIL:
+        raise ValueError(f"gate {gate_name!r} carries no {missing}: {truth}")
+    wrong = {k: (v, truth[k]) for k, v in stamped.items() if v != truth[k]}
+    if wrong:
+        raise ValueError(f"gate {gate_name!r} identity mismatch: {wrong}")
+
+
+def test_red_the_copied_opt_out_used_to_pass_in_total_silence(
+        monkeypatch, capsys):
+    """The audit finding, reproduced: `[ok]`, no identity, no complaint.
+
+    `False` is put back on the gate to stand in for the pre-change tree,
+    because that IS the whole of the pre-change opt-out -- the five lines of
+    comment that used to sit around it were never read by anything, which is
+    the point. Whoever copied the header got both, and only one of them was
+    load-bearing.
+    """
+
+    class _Copied(_CopiedFromG3):
+        MEASURES_PROBLEM = False        # what G3 declared before the change
+
+    monkeypatch.setattr(runner, "_verify_problem_identity",
+                        _pre_noproblem_verify)
+    monkeypatch.setattr(runner, "discover", lambda: [_Copied()])
+
+    res, = runner.run_gates(BaseConfig(), _Args(FIXTURE))
+    out = capsys.readouterr().out
+    assert res.status == runner.OK
+    assert not [k for k in runner.ID_KEYS if k in res.details], (
+        "two coupling efficiencies, and nothing saying whose")
+    assert out.startswith("[ok]"), out
+    assert "identity" not in out and "provenance" not in out, out
+
+
+def test_that_same_copy_is_now_refused_outright_by_the_real_runner(
+        monkeypatch):
+    """The half of the fix that IS enforced: the old spelling stops working.
+
+    Not because the runner detected a copy -- it cannot -- but because the
+    thing that was copyable no longer parses. Anyone carrying `False` forward
+    is stopped and told what to write instead.
+    """
+
+    class _Copied(_CopiedFromG3):
+        MEASURES_PROBLEM = False
+
+    monkeypatch.setattr(runner, "discover", lambda: [_Copied()])
+    res, = runner.run_gates(BaseConfig(), _Args(FIXTURE))
+    assert res.status == runner.FAIL
+    assert "NoProblem(" in res.details["exception"]
+
+
+def test_green_the_copy_now_carries_a_sentence_that_is_false_where_it_landed(
+        monkeypatch):
+    """The honest boundary of this fix, asserted rather than claimed in prose.
+
+    It is NOT that the copy is blocked. The gate below is the real audit probe
+    -- G3's declaration object, unmodified, on a gate that measures a coupler
+    -- and it still passes: the runner accepts any `NoProblem`, and asking it
+    to do more would mean asking a string whether it describes its module.
+
+    What the change buys is the second half. The declaration that travelled
+    with the copy now says what G3 measures, so the module contains, a few
+    lines above `CE_fwd_dB`, the claim that there is no device in the scene.
+    That is a review finding a person can make in one read; before, the
+    declaration was `False` and said nothing at all.
+    """
+    monkeypatch.setattr(runner, "discover", lambda: [_CopiedFromG3()])
+    res, = runner.run_gates(BaseConfig(), _Args(FIXTURE))
+    assert res.status == runner.OK, "the fix makes copying visible, not hard"
+
+    reason = _CopiedFromG3.MEASURES_PROBLEM.reason
+    assert reason is vars(g3)["MEASURES_PROBLEM"].reason, "the same object"
+    assert "EMPTY cell" in reason and "no device" in reason
+    assert "CE_fwd_dB" in res.details, (
+        "and this is what it is now sitting next to")
 
 
 def test_a_str_subclass_declaration_is_refused_with_the_rest():
@@ -1610,7 +1819,8 @@ def test_the_failure_dump_cannot_carry_escape_codes_to_the_console(
     class _RaisingGate:
         NAME = "raiser"
         ORDER = 93
-        MEASURES_PROBLEM = False
+        MEASURES_PROBLEM = runner.NoProblem("this fixture never gets as far "
+                                            "as building a scene")
 
         def run(self, cfg, args):
             raise RuntimeError(

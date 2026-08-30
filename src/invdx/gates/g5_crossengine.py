@@ -17,17 +17,16 @@ concrete design problem lands.
 
 import numpy as np
 
-from .runner import GateResult
+from .runner import GateResult, NoProblem
 
 NAME = "crossengine"
 ORDER = 5
 REQUIRES = ("gpu", "meep-env")
-# This gate measures no problem module, so it owes the report no
-# `problem` / `problem_module` keys. Declared, not inferred: the runner
-# requires the two identity keys from every gate by default, precisely so
-# that a gate author who writes nothing gets a loud complaint instead of a
-# silent exemption. See `runner._declared_problem`.
-MEASURES_PROBLEM = False
+MEASURES_PROBLEM = NoProblem(
+    "G5's device is its own: the dielectric slab hard-coded in the constants "
+    "below, chosen because an analytic answer exists for it. The comparison "
+    "is between two engines and that formula, so no problem module -- and no "
+    "`--problem` -- has any claim on these transmissions")
 
 N_SLAB = 2.0
 T_SLAB_UM = 0.5

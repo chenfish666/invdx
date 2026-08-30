@@ -60,18 +60,39 @@ reading the answer off the same spec the gate read it off -- and fails the
 gate if the result disagrees, or if it carries no identity at all.
 
 A gate that measures no problem, like G0/G1/G3/G5, opts OUT, in the gate
-module, with `MEASURES_PROBLEM = False`. That polarity is the point. It was
-opt-in once (`MEASURES_PROBLEM = True` to be checked), which meant the
-failure the backstop exists for -- an author who does not know the rule --
-was also the way to turn the backstop off: a new gate reporting numbers with
-no identity passed silently. Now writing nothing gets a loud complaint with
-both fixes in it, and deleting the line from a gate that legitimately
-measures nothing gets a loud false alarm, which is the harmless direction.
-The runner never infers the opt-out; a person types it.
+module, with a reason:
+
+    MEASURES_PROBLEM = NoProblem("what this gate measures instead of a device")
+
+Two separate decisions are packed into that line. The POLARITY -- opt out, not
+opt in -- came first. It was opt-in once (`MEASURES_PROBLEM = True` to be
+checked), which meant the failure the backstop exists for, an author who does
+not know the rule, was also the way to turn the backstop off: a new gate
+reporting numbers with no identity passed silently. Now writing nothing gets a
+loud complaint with both fixes in it, and deleting the line from a gate that
+legitimately measures nothing gets a loud false alarm, which is the harmless
+direction. The runner never infers the opt-out; a person types it.
+
+The REASON came second, from an audit that showed the polarity was only half
+the job. The opt-out was the bare constant `MEASURES_PROBLEM = False`, and
+`False` is the same three characters in every module: correct where each of
+these four gates typed it, and still correct-LOOKING pasted into a gate that
+measures a coupler. The audit did exactly that -- copied G3's declaration and
+its explanatory comment into a new gate that reported `CE_fwd_dB` and
+`CE_rev_dB` and stamped no identity -- and got `[ok]`. A reason cannot be
+neutral that way: "there is no device in the scene" is visibly false in a gate
+that has one, which is why `False` is now refused outright with the
+replacement spelled out rather than quietly accepted.
+
+The size of that claim, because it is easy to overstate: this makes a copied
+opt-out READABLE as wrong. It does not make copying impossible. A reason is a
+string and the interpreter cannot check whether it describes the module it was
+typed in -- the reader does that, in review. Same boundary as everything else
+in this package.
 
 Exactly two things excuse a result from carrying identity, and both are named
 here so this reads as the whole rule rather than most of it. One is
-`MEASURES_PROBLEM = False`, above. The other is a result that is already a
+`NoProblem(reason)`, above. The other is a result that is already a
 `[FAIL]`: a gate that broke before it loaded anything has a real diagnosis in
 it, and replacing that with a provenance complaint swaps the cause for a
 lecture (G2's Parts A and B fail exactly there). A `[FAIL]` that stamps the
@@ -102,3 +123,7 @@ in this process and can rewrite any of it. `runner.py`'s docstring says the
 same at the point where the rule lives; the README says it where a reader of
 a report will see it.
 """
+
+from .runner import NoProblem
+
+__all__ = ["NoProblem"]
