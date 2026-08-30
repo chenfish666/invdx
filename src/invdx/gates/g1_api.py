@@ -13,6 +13,12 @@ from .runner import GateResult
 NAME = "api"
 ORDER = 1
 REQUIRES = ()
+# This gate measures no problem module, so it owes the report no
+# `problem` / `problem_module` keys. Declared, not inferred: the runner
+# requires the two identity keys from every gate by default, precisely so
+# that a gate author who writes nothing gets a loud complaint instead of a
+# silent exemption. See `runner._declared_problem`.
+MEASURES_PROBLEM = False
 
 # every fdtdx name invdx code touches; extend when the adapter grows.
 # targets the RELEASED fdtdx (no UniformGrid — that's post-0.6.2 dev API)

@@ -32,7 +32,6 @@ module ends with
 
 ```python
 PROBLEM = ProblemSpec(
-    name="<yourname>",
     config_cls=<YourName>Config,
     gradcheck_case=...,      # a factory, or Unsupported("why not")
     reciprocity_case=...,    # a factory, or Unsupported("why not")
@@ -46,6 +45,100 @@ after you add your module to the registry dict in
 a problem living outside this repo can be gated without being vendored in.
 Details and the exact types: [`src/invdx/problems/contract.py`](../src/invdx/problems/contract.py).
 
+**Your problem does not name itself, and you do not need to know anyone
+else's name to write one.** Whatever `load` was asked for *is* the name — the
+registry key, or the last segment of the dotted path
+(`yourpkg.problems.spiral` is named `spiral`) — and `load` stamps it onto the
+spec it hands back. Writing it out a third time, next to the module path and
+the registry key, would be a copy with no derivation and nothing comparing
+it. If you declare a `name=` anyway and it disagrees with the name you loaded
+under, `load` raises rather than quietly correcting you; and a dotted path
+whose last segment is a *registered* problem's name —
+`yourpkg.problems.grating_coupler` — is refused before it is imported,
+whatever the module does or does not declare. Both refusals protect the same
+thing: the name is the key the gate reports are filed under (`<name>_f0`,
+`<name>_fd_checks`, `<name>_sampling`, `details["problem"]`), so a wrong one
+puts your numbers under a shipped problem's label in `gates_report.json`.
+Neither rule touches a problem with a name of its own — `spiral`, `mmi`,
+`tmm_stack` all load from anywhere.
+
+`load` also stamps the import path it resolved, and the gates write it as
+`details["problem_module"]`, so the report says where its numbers came from
+rather than only what they are called. The name is assigned by the loader;
+the path is the one field that can be checked against a tree, and it stays in
+`gates_report.json` after the surrounding run directory (and its
+`cmdline.txt`) is gone.
+
+Neither `problem` nor `problem_module` is yours to write. Both are stamped by
+the gate from the spec `load` returned, and a `ReciprocityCase.extra` or
+`GradcheckCase.info` carrying either name is refused with the colliding key
+named — as is any key the gate measures itself (`CE_fwd_dB`, `grad_max`, …)
+or the runner writes (`seconds`, `reason`, `exception`). Put your own numbers
+under your own names. The rule exists because a silent merge would file your
+value under the gate's name: the report still parses, every expected key is
+there, and no reader can tell whose number it is. The same goes for the two
+fields on the spec itself: they must be exactly `str` and nothing str-like,
+because every question the loader asks about them (`str(...).strip()`, `==`)
+is asked *of* the value, and a `str` subclass answers on its own behalf. The
+same rule reaches the report: every key in `details`, at any depth, and the
+two identity values a gate stamps, must be exactly `str` — a subclass that
+overrides `__hash__` is not the key it spells as far as any guard is
+concerned, and is still written out under that name by `json.dump`.
+
+For the identity keys there is then a second check that does not depend on
+the gate remembering any of this — before writing the report, the runner
+works out what `--problem` asked for, derives the identity from that request
+alone without loading anything, and fails the gate if the result disagrees
+(on any status) or carries no identity at all (unless the result is already a
+`[FAIL]`, whose own diagnosis must not be buried under a provenance
+complaint). That second check is on by default for **every** gate, including
+one written next year by someone who never read this page; a gate that
+measures no problem declares `MEASURES_PROBLEM = False` to be excused.
+Nothing you write in a problem module can turn it off, and nothing you *fail*
+to write in one can either.
+
+`--problem` is the usual source of that truth but not the only one: a gate
+that always measures one particular problem, whatever was asked for, declares
+`MEASURES_PROBLEM = '<name>'`, and the runner resolves that name the same
+request-side way instead of reading it off the loaded problem. So the
+declaration cannot name one problem while the report names another. It does
+not verify that the gate imported the module it named — a gate that says one
+name and loads a different problem to measure is a gate lying about its own
+work, which is the other side of the boundary described just below.
+
+### What that buys, and what it does not
+
+Say this plainly, because it changes how you should read a report that is not
+your own: **these rules are record-keeping, not a security boundary.** Loading
+your problem imports it, and an imported module runs in the same process as
+the gates. It can reach into `invdx.gates` directly, replace the runner's
+functions, or write `gates_report.json` without simulating anything. A module
+that is *trying* to lie can produce a report byte-identical to an honest one —
+an audit of this repo built one, a pure-CPU stand-in with a `time.sleep` where
+a 91-second GPU run should have been — and no check running inside the same
+process will catch it. If a problem module deliberately lies, the report is
+not evidence, and nothing here changes that.
+
+What these rules catch is the whole space of things that go wrong *without
+anyone meaning them to*, which is the space you are actually in while writing
+a new problem: forgetting to declare a gate, copying a module and keeping the
+name it came with, naming your file after a shipped problem, letting your
+`extra` dict land on top of the gate's keys, writing a gate that reports
+numbers with no provenance. Each of those used to produce a green report and
+now produces a loud failure naming the key and the fix.
+
+Where that stops, stated so you know which half of a report the machinery
+stands behind: the runner can only re-derive the **two identity keys**, so
+those are the only ones it checks on its own. Your `extra` and `info` dicts
+are kept off a gate's measured numbers by the collision refusal, and that
+refusal lives in `runner.merge_problem_dict` — a gate that does not route
+your dict through it (the gates shipped here do) would let your value land on
+top of its own, and nothing downstream could tell. That is a rule for
+whoever writes the next gate, not something this page can promise you. The
+provenance fields are what make a report checkable at all: they give a reader
+the module path to go and read. They are a pointer to the evidence, not the
+evidence.
+
 Everything else is a convention rather than a contract, and the honest reason
 is worth stating: across the two shipped problems the intersection of
 module-level function names is **empty**. `grating_coupler` and `phc_bend`
@@ -54,7 +147,7 @@ writing, not names anything imports.
 
 | you provide | who consumes it | required? |
 |---|---|---|
-| `PROBLEM = ProblemSpec(...)` | `problems.load`, gates G2 Part C and G4 | yes |
+| `PROBLEM = ProblemSpec(...)` — a config class and one answer per problem-specific gate; no name, `load` derives that | `problems.load`, gates G2 Part C and G4 | yes |
 | a `@dataclass` config subclassing `config.BaseConfig` | `cli.apply_overrides` (`--set`), `cli.start_run` (writes `config.json`) | yes |
 | geometry as plain numpy / plain data | your own scene builders, your tests, `invdx.viz` | yes, in practice |
 | one scene builder per engine you use | your measurement functions | one per engine |

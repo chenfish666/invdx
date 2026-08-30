@@ -268,7 +268,6 @@ def meep_bend_transmission(cfg, defect=None, n_ranks=1, timeout=1800):
 # --------------------------------------------------------------------------
 
 PROBLEM = ProblemSpec(
-    name="phc_bend",
     config_cls=PhCBendConfig,
     gradcheck_case=Unsupported(
         "no differentiable design path — this module is numpy-pure on "

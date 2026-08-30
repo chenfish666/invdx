@@ -2426,7 +2426,6 @@ def reciprocity_case():
 
 
 PROBLEM = ProblemSpec(
-    name="grating_coupler",
     config_cls=GratingCouplerConfig,
     gradcheck_case=gradcheck_case,
     reciprocity_case=reciprocity_case,

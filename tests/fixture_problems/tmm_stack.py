@@ -188,7 +188,6 @@ def reciprocity_case(normalized=True):
 
 
 PROBLEM = ProblemSpec(
-    name="tmm_stack",
     config_cls=TMMStackConfig,
     gradcheck_case=gradcheck_case,
     reciprocity_case=reciprocity_case,

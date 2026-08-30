@@ -33,11 +33,22 @@ import numpy as np
 from invdx import problems
 from invdx.richardson_fd import richardson_fd_check
 
-from .runner import GateResult, PARTIAL
+from .runner import GateResult, PARTIAL, gate_details, merge_problem_dict
 
 NAME = "gradcheck"
 ORDER = 2
 REQUIRES = ("gpu",)
+# Part C measures whatever `--problem` asked for; Parts A and B measure this
+# repo's own filter chain and are problem-independent. Read by the runner's
+# identity backstop -- see `runner._verify_problem_identity`, which requires
+# the identity keys on any result that is not already a failure. Parts A and
+# B fail before a problem is loaded, and that exemption is why: their reason
+# is the real one and must not be replaced by a provenance complaint.
+#
+# Spelled out although True is also the default, because this gate is one of
+# the two the rule is about: a reader comparing it with G0/G1/G3/G5 should
+# see a declaration on both sides rather than an absence on one.
+MEASURES_PROBLEM = True
 
 FD_H = 0.05
 REL_TOL = 0.05
@@ -48,12 +59,11 @@ K_SAMPLES = 3
 MIN_REL_GRAD = 0.05
 
 # Part C's sampling report is a merge of two authors: whatever the problem put
-# in `GradcheckCase.info`, plus these three, which the gate measures itself.
-# A name in both is refused rather than resolved. Picking a winner would mean
-# writing one author's number under the other author's name -- the report still
-# parses, every key is present, and the value is simply someone else's. Raising
-# turns that into an import-time-loud failure with the colliding name in it.
-_GATE_OWNED_INFO_KEYS = frozenset({"grad_max", "n_eligible", "n_voxels"})
+# in `GradcheckCase.info`, plus the three the gate measures itself. A name in
+# both is refused rather than resolved, by `runner.merge_problem_dict` -- which
+# is where that rule lives for every gate now, rather than being copied per
+# gate. There is no list of the gate's keys here because there is no need for
+# one: the keys are the dict the gate hands that function.
 
 
 def _part_a_filter_chain():
@@ -191,16 +201,12 @@ def _part_c_problem_device(spec):
                        "fd_h": float(fd_h), "fd_h2": float(fd_h2),
                        "rel_err": float(rel),
                        "fd_consistency": float(fd_consistency)})
-    info = dict(case.info)
-    clash = sorted(_GATE_OWNED_INFO_KEYS.intersection(info))
-    if clash:
-        raise ValueError(
-            f"{spec.name}.gradcheck_case() put gate-owned key(s) {clash} in "
-            f"GradcheckCase.info; the gate measures these itself. Rename them "
-            f"in the problem -- reserved: {sorted(_GATE_OWNED_INFO_KEYS)}.")
-    info.update({"grad_max": float(mag.max()),
-                 "n_eligible": int(eligible.size),
-                 "n_voxels": int(mag.size)})
+    info = merge_problem_dict(
+        f"{spec.name}.gradcheck_case() -> GradcheckCase.info",
+        case.info,
+        {"grad_max": float(mag.max()),
+         "n_eligible": int(eligible.size),
+         "n_voxels": int(mag.size)})
     return float(f0), checks, n_bad, info
 
 
@@ -221,7 +227,11 @@ def run(cfg, args):
             **details})
 
     spec = problems.from_args(args)
-    details["problem"] = spec.name
+    # Which problem the Part C numbers below were measured on, and on which
+    # module -- the name alone does not pin that down (see problems/__init__).
+    # Stamped by `gate_details` from the loaded spec rather than written here,
+    # so there is one place that decides what those keys mean.
+    details = gate_details(spec, details)
     slot = spec.gradcheck_case
     if isinstance(slot, problems.Unsupported):
         # Parts A and B passed and are real coverage, so this is not [n/a];

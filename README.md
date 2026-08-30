@@ -245,7 +245,77 @@ would be one neither of them implements. What the declaration does buy is the
 two gates that measure a concrete problem (G2 Part C gradcheck, G4
 reciprocity): a new problem inherits them by supplying a case, and a problem
 for which a gate has nothing to check must say so, with its reason, rather
-than losing the coverage silently.
+than losing the coverage silently. The declaration carries no name of its
+own: `problems.load` names a problem after what it was asked for — the
+registry key, or the last segment of a dotted module path — so writing your
+own problem never requires knowing what anyone else's is called. Two things
+follow the name into the gate report. `load` stamps the import path it
+resolved and the gates write it as `details["problem_module"]`, so a report
+says which module produced its numbers and not merely what that module was
+called — and a problem module does not supply either field, because a subject
+that fills in its own identity has not been identified. Four things enforce
+that: the gate stamps both from the loaded spec; a case carrying a copy of
+either is refused, naming the key; the two identity fields on the spec, the
+two identity values a gate stamps, and every `details` key at any depth must
+be exactly `str` and nothing `str`-like, because a subclass answers the `==`
+and the `in` asked about it on its own behalf; and the runner re-derives
+both from what `--problem` asked for — from the request, not from the spec
+the gate read them off — and compares before the report is written. The one
+other source of truth is a declaration, not a loophole: a gate that always
+measures one particular problem says so as `MEASURES_PROBLEM = '<name>'` in
+the gate module, and the runner resolves that name from the request side
+too, rather than reading it off the loaded problem.
+
+A gate whose result disagrees with whichever of the two applies fails, on
+any status. A gate that reports no provenance **at all** fails as well, with
+two stated exceptions: its module may declare `MEASURES_PROBLEM = False` —
+how G0/G1/G3/G5 say they measure no problem — and a result that is already a
+`[FAIL]` is let through, because a gate that broke before it loaded anything
+has a real diagnosis in it and replacing that with a bookkeeping complaint
+would hide the actual cause. That polarity is deliberate: an author who
+writes nothing gets a loud complaint naming both fixes, because "did not
+know the rule" is the failure this layer is for, and it must not also be the
+way to switch the layer off. And a request
+that would take a *registered* problem's name — a module declaring
+`name="grating_coupler"`, or one that is simply a file called
+`grating_coupler.py` somewhere else — is refused, because that name is the key
+the numbers are filed under in `gates_report.json`. A problem with a name of
+its own is untouched by either rule.
+
+**What that does and does not buy, because the difference decides how you
+should read someone else's report.** These rules are record-keeping, not a
+security boundary. Loading a problem imports it, and an imported module runs
+in this process: it can reach into `invdx.gates` directly, replace the
+runner's own functions, or write `gates_report.json` without running a
+simulation at all. A module that is *trying* to lie can produce a report
+byte-identical to an honest one — an audit of this repo did exactly that, with
+a pure-CPU stand-in and a `time.sleep` standing in for a 91-second GPU run —
+and no check running inside the same process can tell you otherwise. So the
+short answer to "if a problem module deliberately lies, is this report still
+evidence?" is **no, and nothing here makes it so.** What these rules do catch
+is the accident and the shortcut: a problem that forgets to declare a gate, a
+copied module that kept the name it was copied from, a file renamed into a
+registered problem's spelling, a case that files its own numbers under the
+gate's key, a gate that reports numbers with no provenance at all. Those
+happen without anyone intending them, they are what quietly turns a green
+report into a meaningless one, and every one of them now fails loudly
+instead.
+
+Two limits on that list, because the difference decides which parts of a
+report a check stands behind. The runner's own backstop covers **the two
+identity keys only** — they are the only fields whose true value it can
+work out independently, from the request. For everything a gate measures
+itself (`CE_fwd_dB`, `grad_max`, …) there is no second source, so the
+collision refusal is the only thing standing there, and it stands only where
+the gate routes the problem's dict through `runner.gate_details` /
+`merge_problem_dict`. A gate that instead builds `details` as a literal and
+spreads the problem's dict over its own measured numbers still has its
+identity keys checked by the runner and its numbers silently replaced — which
+is exactly the bug G4 shipped with, minus the half that is now caught. The
+fix for the other half is a rule for gate authors, in `gates/__init__.py`,
+not a mechanism. The provenance fields exist so that a reader who wants to
+check has a module path to go and read: they are a pointer to the evidence,
+not the evidence.
 
 ## Scripts
 

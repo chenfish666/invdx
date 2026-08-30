@@ -22,6 +22,12 @@ from .runner import GateResult
 NAME = "crossengine"
 ORDER = 5
 REQUIRES = ("gpu", "meep-env")
+# This gate measures no problem module, so it owes the report no
+# `problem` / `problem_module` keys. Declared, not inferred: the runner
+# requires the two identity keys from every gate by default, precisely so
+# that a gate author who writes nothing gets a loud complaint instead of a
+# silent exemption. See `runner._declared_problem`.
+MEASURES_PROBLEM = False
 
 N_SLAB = 2.0
 T_SLAB_UM = 0.5
