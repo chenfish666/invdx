@@ -8,6 +8,25 @@ page is a pair — English `X.md` next to Traditional Chinese `X.zh-TW.md` — a
 each half links to the other at the top of the page. (The Export section lists
 commands rather than pages, so it carries no language tag.)
 
+`make bilingual` checks the pairs mechanically — matching code blocks, links,
+heading levels and cross-links — and then enforces the rulings in
+[`glossary.zh-TW.md`](glossary.zh-TW.md): every filename and section name it
+cites must resolve, no rendering it bans may survive anywhere in the Chinese
+tree, and a Chinese form it binds to an English term may not appear where that
+term is missing. Each check prints what it looked at, so a shrinking
+denominator is visible. It does not check prose; only a cold read does that.
+
+## Terminology
+
+- [`glossary.md`](glossary.md) — the terms the Chinese docs bind, and why:
+  one concept that acquired two Chinese names, collisions where the obvious
+  Chinese word already means something else, terms deliberately left in
+  English, and the symbols that must be defined at first use. Grown from six
+  cold reads, not from foresight. It holds rulings only — claims about what
+  any file currently says are recomputed by `make bilingual` instead, because
+  this page causes the revisions that would falsify them.
+  **Languages:** English · [繁體中文](glossary.zh-TW.md).
+
 ## Tutorials
 
 - [`phc-bend-walkthrough.md`](phc-bend-walkthrough.md) — hands-on, one-command-per-step
@@ -31,7 +50,7 @@ commands rather than pages, so it carries no language tag.)
   which layer a new dependency belongs in, what `uv.lock` and `spack.lock`
   each pin, the offline/no-network path and what was actually measured about
   it, the drift checks, and the pits both halves have fallen into.
-  **Languages:** English.
+  **Languages:** English · [繁體中文](env.zh-TW.md).
 - `bash scripts/bootstrap.sh` — layer L1 (uv, JAX, fdtdx): installs, gates on
   the GPU driver version, and verifies by importing. `bash spack/bootstrap.sh`
   is its L2 (Meep) counterpart. Both are idempotent; `make env-drift` checks
@@ -39,7 +58,7 @@ commands rather than pages, so it carries no language tag.)
 - [`dependencies.md`](dependencies.md) — what the toolbox stands on: who
   maintains each package, what the licenses add up to (including how the GPL
   engine stays isolated), and what would break if one disappeared.
-  **Languages:** English.
+  **Languages:** English · [繁體中文](dependencies.zh-TW.md).
 
 ## How-to
 
@@ -58,10 +77,10 @@ commands rather than pages, so it carries no language tag.)
 - [`optimize.md`](optimize.md) — the inverse-design loop: the
   differentiable Device path, FOM, Richardson gradcheck, checkpoint/resume,
   and Slurm usage.
-  **Languages:** English.
+  **Languages:** English · [繁體中文](optimize.zh-TW.md).
 - [`tolerance.md`](tolerance.md) — design-for-tolerance method notes and
   reporting conventions (sensitivity maps, corner evaluation).
-  **Languages:** English.
+  **Languages:** English · [繁體中文](tolerance.zh-TW.md).
 
 ## Export
 
@@ -77,8 +96,8 @@ commands rather than pages, so it carries no language tag.)
 
 - [`journal.md`](journal.md) — append-only working log; every reported
   number cites the run, commit, or report file it came from.
-  **Languages:** English.
+  **Languages:** English · [繁體中文](journal.zh-TW.md).
 - [`RETRACTIONS.md`](RETRACTIONS.md) — conclusions this project published
   and later found wrong, corrected in place with a pointer here rather than
   silently edited away.
-  **Languages:** English.
+  **Languages:** English · [繁體中文](RETRACTIONS.zh-TW.md).

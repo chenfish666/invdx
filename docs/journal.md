@@ -1,3 +1,5 @@
+> **English** · [繁體中文](journal.zh-TW.md)
+
 [← back to docs index](README.md)
 
 # Journal (append-only)
@@ -22,9 +24,12 @@ citations a reader can open.
 - `pyproject.toml` pins `jax[cuda12]==0.11.0` + `fdtdx==0.6.2`; `uv.lock` freezes
   148 packages. Existing conda envs untouched (fallback).
 - Acceptance: all gates G0–G5 green (G5 `[ok]`, not skipped); benchmark parity
-  vs `runs/benchmark_fast_v6.json` — fast hot 1250.832 vs 1250.799 Mcell-steps/s,
-  vanilla 636.748 vs 638.033, `peak_mem_gb` identical at 6.015903,
-  `max|dE|=max|dH|=0.0` (bitwise contract). Source: `runs/bench_uv_verify.json`.
+  vs `runs/benchmark_fast_v6.json` — `fast` (this repo's accelerated forward
+  loop) hot, i.e. timed after the compile run, 1250.832 vs 1250.799
+  Mcell-steps/s; `vanilla` (stock `fdtdx.run_fdtd`) 636.748 vs 638.033;
+  `peak_mem_gb` identical at 6.015903; `max|dE|=max|dH|=0.0` (bitwise
+  contract: the two fields must be exactly equal, no drift allowed).
+  Source: `runs/bench_uv_verify.json`.
 
 **L2: meep built from source via spack**
 
@@ -53,9 +58,10 @@ path added to `src/invdx/problems/grating_coupler.py`)
 
 - New differentiable path: `fdtdx.Device` over the real grating_coupler scene (the
   legacy `profile_teeth` route binarizes inside `grating_coupler.profile_teeth` and was never
-  differentiable). FOM = jnp twin of the TE0 overlap; V3 consistency between
-  the differentiable FOM and the legacy `characterize` chain on the same
-  binary design: the two routes agree to |Δ| = 2.5e-6 dB (threshold 0.05).
+  differentiable). FOM = jnp twin of the TE0 overlap; the V3 consistency check
+  (the V-numbers are this milestone's verification items, a separate series
+  from the G0–G5 gates) between the differentiable FOM and the legacy
+  `characterize` chain on the same binary design: the two routes agree to |Δ| = 2.5e-6 dB (threshold 0.05).
 - G2 gained Part C (3-voxel FD on the real grating_coupler Device scene): rel err
   0.0008% / 0.177% / 0.067% vs 5% tolerance, with a signal-floor sampler
   (278/500 voxels above 5% of peak gradient are eligible — FD on
@@ -78,7 +84,8 @@ path added to `src/invdx/problems/grating_coupler.py`)
 
 ## 2026-08-17 — Verification chain exercised end to end
 
-Both optimization rounds were stopped deliberately part-way (θ=10 at
+Both optimization rounds were stopped deliberately part-way (θ, the fiber
+incidence angle in degrees, with θ=0 fully vertical: θ=10 at
 iteration 25/40, θ=0 at 31/40, both still at β=64 with the binarization
 schedule unfinished) and their checkpoints finalized into designs. The point
 was to exercise the verification chain on real, full-scale designs, not to
@@ -101,7 +108,8 @@ ridge position untouched, and a corner screen where all three corners clear
 the yield line — while its binarization gap misses the acceptance figure just
 as the θ=10 one does. Both designs also violate the minimum-feature rule they
 were filtered for, which the tolerance report prints as a measurement rather
-than a pass/fail — single-field projection at η=0.5 carries no length-scale
+than a pass/fail — a projection of the single nominal density field (at the
+threshold η=0.5, without the eroded and dilated ones) carries no length-scale
 guarantee, so the violation is real and belongs to the unfinished
 binarization, not to the filter radius.
 
@@ -124,7 +132,8 @@ corners were run, the n=3 disclaimer on the yield line). Sources:
   rel err 6.29% vs the 5% tolerance, deterministic under the fixed seed, so
   it was recorded as `gradcheck_failed` rather than silently retried. The
   exploratory θ=0 round passed gradcheck (1.93%) and ran overnight.
-- Root cause, from an h-scan on GPU: **FD truncation, not an adjoint defect**
+- Root cause, from an h-scan on GPU (sweeping the finite-difference step h):
+  **FD truncation, not an adjoint defect**
   — the residual scales as h³ (×0.126 per h-halving), Richardson
   extrapolation from the same runs agrees with the adjoint to 0.0106%, the
   float32 noise floor is 200× below the observed residual, and the failing

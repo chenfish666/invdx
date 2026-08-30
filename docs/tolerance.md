@@ -1,14 +1,16 @@
+> **English** · [繁體中文](tolerance.zh-TW.md)
+
 [← back to docs index](README.md)
 
 # Design-for-tolerance: method notes
 
 Why this file: an inverse-designed device is optimized against one nominal
 geometry, while a fab process delivers a distribution of geometries. The
-example problem shipped here assumes a 193 nm DUV SOI platform, and published
-simulation studies of that class of process show inverse-designed devices
-carrying *hard* minimum-feature constraints alone can still land at
-Yield_90% = 0% before lithography-aware correction (OptoSynthesizer,
-arXiv:2604.15493, Table 1 — simulation, no fab data). A minimum-feature rule
+example problem shipped here is a grating coupler and assumes a 193 nm DUV
+SOI platform, and published simulation studies of that class of process show
+inverse-designed devices carrying *hard* minimum-feature constraints alone
+can still land at Yield_90% = 0% before lithography-aware correction
+(OptoSynthesizer, arXiv:2604.15493, Table 1 — simulation, no fab data). A minimum-feature rule
 is therefore worth reporting against, not worth trusting. This note maps that
 literature onto the mechanisms this repo already has, and fixes the reporting
 conventions so a tolerance number means the same thing every time it is
@@ -43,11 +45,13 @@ the feature did not exist yet, which was the opposite of true.
 
 Both steps are implemented in `scripts/16_tolerance_report.py`:
 
-1. *Sensitivity map* — evaluate `∂CE/∂rho` at the final design and reduce it
-   to a per-tooth linewidth sensitivity. Cost: one backward pass. Output: a
-   figure + CSV ranking which teeth dominate CE degradation under linewidth
-   drift. Rationale: mask-to-wafer error is not uniform; sensitive regions
-   dominate performance (arXiv:2604.15493 §3.1.2).
+1. *Sensitivity map* — evaluate `∂CE/∂rho` at the final design (CE is the
+   coupling efficiency, rho the design density field) and reduce it to a
+   per-tooth linewidth sensitivity — a tooth being one periodic line of the
+   grating. Cost: one backward pass. Output: a figure + CSV ranking which
+   teeth dominate CE degradation under linewidth drift. Rationale:
+   mask-to-wafer error is not uniform; sensitive regions dominate performance
+   (arXiv:2604.15493 §3.1.2).
 2. *Corner evaluation* — re-rasterize the fixed design at the three
    projection corners (eta_i / eta_e / eta_d) and report CE and 3 dB
    bandwidth per corner. No re-optimization; this quantifies how fragile the
@@ -61,7 +65,8 @@ ensemble) is a different formulation and is not implemented here.
 
 - Yield metric: `Yield_90% = Pr(CE_corner >= 0.9 * CE_nominal)` over the
   sampled variation set — the threshold is fixed here in the method notes so
-  it cannot be chosen after seeing a result.
+  it cannot be chosen after seeing a result. The 0.9 factor is on linear CE,
+  not on dB: the script converts `CE_dB` back to linear before comparing.
 - Corner table columns: `corner, CE_dB, bw_3db_nm, ridge_lam_um`.
 - All results from this repo are simulation. Write "simulation shows", never
   "experiments show". (Applies equally when citing arXiv:2604.15493 — that

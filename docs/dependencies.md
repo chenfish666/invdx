@@ -1,3 +1,7 @@
+> **English** · [繁體中文](dependencies.zh-TW.md)
+
+[← back to docs index](README.md)
+
 # Dependencies
 
 What this toolbox stands on, who maintains each piece, what the licenses add
@@ -220,8 +224,8 @@ its read-back check, but GDSII is a standard format so no data is trapped;
 methodological rather than functional: it exists to be a *non-JAX* second
 opinion on gradients in gate G2, and replacing it with JAX itself would
 collapse the cross-framework independence that makes the check meaningful.
-The existing Richardson finite-difference path could cover it at lower
-precision.
+The existing Richardson finite-difference path (numerical gradients by
+Richardson extrapolation) could cover it at lower precision.
 
 **Ask a different question.** `equinox` is unlikely to disappear, and if the
 `buffers=` optimization were lost the code would fall back to fdtdx's

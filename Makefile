@@ -4,7 +4,7 @@
 # silently does nothing because runs/ is a real directory and make decides it
 # is already up to date -- the same trap waits for any target whose name
 # collides with a path.
-.PHONY: check gates test smoke smoke-meep phc-bend coupler-opt-smoke coupler-opt verify tolerance handoff runs help viz bootstrap pylock env-drift requirements
+.PHONY: check gates test smoke smoke-meep phc-bend coupler-opt-smoke coupler-opt verify tolerance handoff runs help viz bootstrap pylock env-drift requirements bilingual
 
 PY  ?= uv run python
 GPU ?= $(if $(INVDX_GPU),$(INVDX_GPU),0)  # CUDA_VISIBLE_DEVICES for GPU-using targets
@@ -86,6 +86,24 @@ requirements:     ## throwaway hash-pinned requirements.txt (not tracked)
 	uv export --locked --format requirements.txt \
 	    --extra gpu --extra dev --no-emit-project -o requirements.txt
 	@echo "requirements.txt written -- scratch artifact, do not commit"
+
+# `env-drift` above catches one copy of a fact going stale; this catches the
+# other. 11 documents exist in English and Traditional Chinese, and the docs
+# themselves name "the same fact written twice, only one copy updated" as the
+# failure that produces no error signal. Without this target the 11 pairs are
+# 11 future divergences.
+#
+# Plain python3, not $(PY): the script is stdlib-only on purpose, so a docs
+# check runs on a bare clone before any environment exists. Making a Markdown
+# lint depend on the JAX environment would be the wrong dependency edge.
+#
+# The self-test runs first, and its failure stops the target. It pins the one
+# rule that tells the checker to ignore a match -- the ban exemption. A widened
+# exemption still reports "OK", so the guard has to fail before the check that
+# depends on it is believed.
+bilingual:        ## check the English/Chinese doc pairs for mechanical drift
+	@python3 scripts/check_bilingual.py --self-test
+	@python3 scripts/check_bilingual.py
 
 check:            ## gate G0 only: pure-python unit tests (~5 min, CPU)
 	$(PY) scripts/00_check.py --only unit

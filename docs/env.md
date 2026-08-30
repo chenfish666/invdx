@@ -1,3 +1,5 @@
+> **English** · [繁體中文](env.zh-TW.md)
+
 [← back to docs index](README.md)
 
 # Environment
@@ -94,6 +96,11 @@ uv run make gates GPU=0    # G0-G5, all green (GPU=0 selects card 0; it
 does the one thing that one does not: it verifies the result rather than
 echoing "done". Details, including what it checks and why the GPU driver is
 one of the checks, are in "The uv layer (L1), in detail" below.
+
+`make gates` runs six gates in order: G0 unit tests, G1 engine availability
+and API surface, G2 adjoint gradients against central finite differences,
+G3 physics baseline (flux conservation in vacuum), G4 reciprocity, and G5
+cross-engine agreement (fdtdx against Meep).
 
 There is no skip path in the gate runner: a gate whose prerequisites are
 absent **fails**, it does not skip. That is deliberate -- a skipped gate reads
@@ -574,9 +581,10 @@ and reverted it in 1.12 for precisely this reason; JAX still defaults it on.
 the card.** JAX's allocator reports a `bytes_limit` that is ~75% of memory
 *free when the process started*, so another process holding a few hundred MiB
 moves it. A memory budget derived from the card's nameplate size is therefore
-optimistic by a variable amount, and the failure shows up as an OOM in an
-eight-hour job rather than at startup. `invdx.hardware.main()` prints the
-fraction next to the nameplate figure so the gap is visible before the run,
+optimistic by a variable amount, and the failure shows up as an out-of-memory
+(OOM) error in an eight-hour job rather than at startup.
+`invdx.hardware.main()` prints the fraction next to the nameplate figure so
+the gap is visible before the run,
 and every field of `DeviceProbe` is optional on purpose — `memory_stats()`
 returns `None` on the CPU backend and `compute_capability` reaches JAX
 through `__getattr__`, so a probe that guessed when it could not see would be
@@ -635,7 +643,7 @@ resolved answer to "which version, which variants, which compiler, which
 dependency versions" for one build — e.g.
 `meep@1.34.0+python+mpi ... %gcc@11.4.0 ^py-numpy@2:`.
 
-### This project's own recipe: `spack_repo/invdx/packages/meep/package.py`
+### This project's own recipe: `spack/spack_repo/invdx/packages/meep/package.py`
 
 Upstream's `meep` recipe caps out at `python@:3.11` unconditionally. This
 project needs Python 3.13. The tempting fix — `class Meep(BuiltinMeep):`
@@ -644,7 +652,7 @@ can only **tighten**, never loosen, so a subclass can't widen a parent's
 `depends_on("python@:3.11")`. The only correct fix (and spack's own
 documented convention for this situation) is a full copy of the upstream
 recipe into a project-owned **package repo**
-(`spack_repo/invdx/`, namespace `invdx`, referenced from `spack/env/spack.yaml`
+(`spack/spack_repo/invdx/`, namespace `invdx`, referenced from `spack/env/spack.yaml`
 as `repos: invdx: $env/../spack_repo/invdx`), edited in place. Three lines
 changed relative to upstream:
 
@@ -806,3 +814,31 @@ Switching is one line: `pixi install`, then point `INVDX_MEEP_ENV` in
 `pixi.lock` is committed — the manifest is pinned tightly enough
 (`pymeep = "1.34.*"`, exact build strings) that locking only matters once
 something actually installs from it.
+
+---
+
+## Appendix: the files named above, and what each one does
+
+This table collects the paths used above in one place for lookup, and tags
+each file with the layer it belongs to.
+
+| File | Layer | Role |
+|---|---|---|
+| `pyproject.toml` | L1 | intent: `requires-python`, the two pins, `[tool.uv] environments` |
+| `uv.lock` | L1 | the source of truth: 148 packages / 314 hashes |
+| `pylock.toml` | L1 | export; disaster recovery and cross-installer use, needs a reachable index |
+| `requirements.txt` | L1 | scratch file from `make requirements`, fed to `pip download`; not tracked |
+| `scripts/bootstrap.sh` | L1 | installs and **verifies** (five checks, including the GPU driver floor) |
+| `src/invdx/hardware.py` | L1 | probes and reports the device (never applies); `pin_matmul_precision()` |
+| `src/invdx/engines/fdtdx_fixes.py` | L1 | repairs the `GaussianPlaneSource` axis order in fdtdx 0.6.2; why the pin is structural |
+| `src/invdx/engines/fdtdx_perf.py` | L1 | specialized copy of the inner time loop, gated on bitwise-identical output |
+| `src/invdx/engines/fdtdx_checkpoint_buffers.py` | L1 | patch keyed to file and line numbers in 0.6.2; uses the undeclared `equinox.internal` |
+| `src/invdx/engines/meep_bridge.py` | L3 | spawns Meep as a subprocess, exchanges `.npy`/`.json`, never imports |
+| `spack/bootstrap.sh` | L2 | installs spack itself (pinned `v1.2.0`) and runs concretize+install for `spack/env` |
+| `spack/env/spack.yaml` / `spack.lock` | L2 | the Meep chain, frozen |
+| `spack/tools/spack.yaml` / `spack.lock` | L2 | the Lmod tools chain, fully independent of the pair above |
+| `spack/spack_repo/invdx/packages/meep/package.py` | L2 | this project's own meep recipe (three lines changed relative to upstream) |
+| `~/.spack/modules.yaml` | L2 | user-scope config, not tracked; controls Lmod generation |
+| `env.sh.example` → `env.sh` | L3 | machine-specific values, never in git |
+| `pixi.toml` | L2 fallback | prepared but unused; switch conditions in the section above |
+| `docs/dependencies.md` | — | the per-package reasoning, and the declaration problem still to fix |

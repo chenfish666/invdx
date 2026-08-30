@@ -1,10 +1,18 @@
+> **English** · [繁體中文](RETRACTIONS.zh-TW.md)
+
 [← back to docs index](README.md)
 
 # Retractions (append-only)
 
 Conclusions this project published (in code, docs, or reports) and later
 refuted by evidence. Entries are appended; the original text stays where it
-was, corrected in place only with a pointer here.
+was, corrected in place only with a pointer here. Keeping the full narrative
+of a wrong conclusion is deliberate: a later reader should be able to see why
+it was believed at the time.
+
+Every entry carries at least these four fields: **Original claim** / **What
+refuted it** / **Corrected statement** / **Consequence**, with any further
+notes appended after them.
 
 ---
 
@@ -15,7 +23,8 @@ difference vs adjoint disagreement on grating_coupler Device voxels is caused by
 "subtracting two nearly-equal float32 numbers" — cancellation noise — and the
 signal-floor sampler (only test voxels ≥5% of peak gradient) addresses it.
 
-**What refuted it**: the production-scale (0.8 ps, θ=10) gradcheck failure
+**What refuted it**: the production-scale (0.8 ps, θ=10; θ is the fiber
+incidence angle in degrees, θ=0 being fully vertical) gradcheck failure
 that aborted the first θ=10 round (voxel 213, rel err 6.29%) was reproduced
 bit-exactly and probed with an h-scan. The residual scaled as h³ (×0.126 per
 halving; cancellation noise would be flat), sat 200× above the measured
@@ -37,11 +46,14 @@ self-consistency indicator; tolerances and the signal floor are unchanged.
 
 ---
 
-## 2026-08-22 — Checkpoint memory slope `291 B/cell/checkpoint` was a GiB/GB
-unit-label bug, not sensor contamination
+## 2026-08-22 — Checkpoint memory slope `291 B/cell/checkpoint` was a GiB/GB unit-label bug, not sensor contamination
 
 **Original claim**: the 3D adjoint checkpoint-memory model was
-`peak(C) ≈ 370 + 291·C` bytes/cell, fitted from three anchor measurements
+`peak(C) ≈ 370 + 291·C` bytes/cell, where C is the number of checkpoints
+(the gradient-rematerialization kind — intermediate state kept for the
+backward pass, trading time for memory — not the resume kind in
+`opt_state.npz`), and a cell is the same grid voxel referred to above. It
+was fitted from three anchor measurements
 (C=10/20/28 → 5.93/11.25/15.42 GB at 1.944M cells) and reported as confirmed
 because a second derivation reproduced 370.1/291.3 — from the same constants.
 
@@ -59,13 +71,18 @@ predicts the same slope to 29 bytes in 521 million (5.6e-8).
 
 The three anchor values were themselves **not** contaminated by the
 process-level `peak_bytes` high-water-mark effect this project has hit
-before; they were independently reproduced to <1.5% error. The error came
+before — `peak_bytes_in_use` reports a whole-process high-water mark, so an
+earlier large allocation in the same process keeps every later reading
+inflated; they were independently reproduced to <1.5% error. The error came
 one step later: those points are decimal-GB (1e9-byte) readings, but the
 fitted slope/intercept (`0.5274`, `0.670`) were labelled "GiB" and converted
 to bytes/cell with ×2^30 instead of ×1e9 — a 7.374% inflation that accounts
 for most of the 291-vs-268 gap, with a further ~1.2% from fitting three
 two-decimal-rounded points instead of exact byte counts. Converting the same
-fit correctly gives ≈271 B/cell/ckpt, already close to the true 268.
+fit correctly gives ≈271 B/cell/ckpt, already close to the true 268. Nothing
+in the fitting step validates a unit label: the measurement tools (NVIDIA,
+JAX, XLA) emit raw byte counts, and the `GB` / `GiB` on the end is attached by
+whoever writes the result up.
 
 **Corrected statement**: the checkpoint-memory slope is **268.0329
 B/cell/checkpoint**, invariant across Turing and Ada to 5e-8 relative, and
@@ -79,7 +96,8 @@ two-point byte data for Ada was available to compute it the same way.
 
 **Consequence**: any extrapolation built on `370 + 291·C` — including the
 `reversible ≈ 144·N²·T` vs `checkpointed ≈ 291·N³·C` crossover at
-`N* ≈ 519` cells/edge — must be recomputed with 268.
+`N* ≈ 519` cells/edge (N cells per edge, T time steps) — must be recomputed
+with 268.
 
 Separately, the framing of "independent paths agreeing to 1.1e-7"
 overclaimed. The two runtime paths and the compile-time path all read out
