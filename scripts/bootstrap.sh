@@ -202,6 +202,14 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 # --------------------------------------------------------------- verify it
+#
+# Two of these assertions also live in gate G1 (fdtdx imports; JAX sees a GPU).
+# That overlap is deliberate, not leftover. GPU visibility is per-process,
+# volatile state -- CUDA_VISIBLE_DEVICES, another job holding the card, a wedged
+# driver -- so green at install time says nothing about green at the moment a
+# run starts. The project has an incident on record where a concurrent run held
+# both cards and G2 hit OOM. docs/env.md frames the two as rungs on a ladder of
+# increasing cost, and G1 costs about a second.
 # This is the section spack/bootstrap.sh does not have. That script installs
 # and then echoes "done", so a build that produced an unimportable result
 # still reads as success. An install is not finished until something has been

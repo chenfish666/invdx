@@ -124,7 +124,7 @@ gate assumes everything before it. Runner: `gates/runner.py`; machine-readable
 
 | # | gate | what it pins down |
 |---|---|---|
-| G0 | unit | pure-math invariants (63 tests: overlaps, filters, toy physics, geometries, design-vector round-trips, checkpoint/resume) |
+| G0 | unit | pure-math invariants (178 tests: overlaps, filters, toy physics, geometries, design-vector round-trips, checkpoint/resume) |
 | G1 | api | released-fdtdx API surface, GPU visible, meep bridge ping |
 | G2 | gradcheck | fdtdx value_and_grad vs finite differences, on a toy cell **and on the real grating_coupler design path**; filter chain rule |
 | G3 | physics | vacuum flux conservation |
@@ -132,6 +132,16 @@ gate assumes everything before it. Runner: `gates/runner.py`; machine-readable
 | G5 | cross-engine | fdtdx vs Meep transmission after convention alignment |
 
 Treat gate failures as stop-the-line events.
+
+A word on the name. In the verification-and-validation sense these six are all
+*verification* -- they ask whether the code solves the equations it claims to
+solve, against analytic solutions, invariants, finite differences and a second
+implementation. None of them is *validation*, which would mean comparing
+against a measured device. A simulation-only project does not have that, and
+the cross-engine gate is the closest available substitute rather than a
+replacement. Grid-convergence work (calculation verification) lives in the
+per-design chain, not here, because it is a property of a solution rather than
+of the code.
 
 ## Measured performance doctrine (Turing-class GPUs)
 
