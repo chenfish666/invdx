@@ -1,0 +1,46 @@
+__pycache__/
+*.pyc
+*.egg-info/
+runs/
+outputs/
+.pytest_cache/
+
+# uv-managed venv / L2 build trees (not repo state, see env.sh.example)
+.venv/
+.pixi/
+spack/env/.spack-env/
+spack/tools/.spack-env/
+env.sh
+
+# spack build-run artifacts: machine-specific paths, not reproducible inputs
+# (spack.yaml/spack.lock are the reproducible inputs and ARE committed)
+spack/env/concretize.txt
+spack/env/install.log
+spack/tools/concretize.txt
+spack/tools/install.log
+
+# Reference material and drafts kept alongside a checkout: not project state
+diagrams/
+papers*/
+
+# RSoft handoff bundles
+rsoft_export/
+
+# Working notes that are not part of the published documentation
+docs-private/
+
+# local tooling scratch
+.claude/
+core.*
+
+# Slurm per-job logs (run data lives in runs/)
+slurm-*.out
+
+# Local records and scratch space, not part of the toolbox
+experiments/
+harness/
+bench/
+
+# One-off probe and sweep drivers: single-use, superseded by scripts/
+slurm/e0*.sh
+slurm/*shard.sh

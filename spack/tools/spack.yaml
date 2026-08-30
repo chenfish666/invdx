@@ -1,0 +1,34 @@
+# 獨立於 ../env/（meep 主環境，凍結不可動）的第二個 spack 環境。
+# 只裝叢集使用者空間工具：lmod（module 指令）＋ apptainer（容器打包，未來遷移 .sif 用）。
+# 需要 spack v1.2.0；bootstrap 見 ../bootstrap.sh
+spack:
+  specs:
+  - lmod
+  - apptainer
+  packages:
+    all:
+      require:
+      - target=x86_64_v3       # 與 ../env/spack.yaml 對齊，保留可遷移性
+    gettext:
+      # user scope（~/.spack/packages.yaml）把系統 gettext-base 標成 external
+      # （buildable:false），但那份只有 msgfmt/xgettext 沒有 autopoint，procps
+      # （lmod 的 build dep）的 autogen.sh 會失敗。加一個外部 gettext 不具備的
+      # variant（+libunistring，預設 ~libunistring）逼 concretizer 放棄 external、
+      # 自建一份完整 gettext（連 buildable:false 都蓋得過，因為 external spec
+      # 本身就不滿足這個變體）。
+      buildable: true
+      require: [+libunistring]
+  concretizer:
+    unify: true
+  repos:
+    builtin:
+      git: https://github.com/spack/spack-packages.git
+      tag: v2026.06.0          # 與 ../env/spack.yaml 同一釘版，兩環境用同一份 recipe 快照
+  config:
+    build_jobs: 32
+  modules:
+    default:
+      lmod:
+        core_compilers:
+        - gcc@11.4.0/4xzbjox43immf63pexifjzhwt2xd7ujq
+        - gcc@12.3.0/tlh6jd6svc6ark6a6ctoy6h36cy64nzl

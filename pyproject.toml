@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+license = {text = "MIT"}
+name = "invdx"
+version = "0.1.0"
+description = "Photonic inverse-design toolbox: fdtdx (GPU) + Meep (cross-validation) engines behind a config-driven, validation-gated methodology layer"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "scipy",
+    "autograd",
+    "gdstk",
+    "pyevtk",
+]
+
+[project.optional-dependencies]
+# The production env installs these explicitly (see README); listed here so
+# `pip install -e .[gpu]` reproduces it. Kept out of core deps so the package
+# stays importable inside the meep conda env (numpy-only modules).
+gpu = ["jax[cuda12]==0.11.0", "fdtdx==0.6.2", "optax"]
+dev = ["pytest", "matplotlib"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
