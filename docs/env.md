@@ -16,7 +16,7 @@ Four layers, each owned by exactly one tool:
 |---|---|---|---|
 | L0 | GPU driver / CUDA runtime / kernel | nothing in this repo | host state; any package manager that tried to own this would fight the vendor driver. Migration check: driver new enough for the pinned CUDA wheel (see `pyproject.toml`) |
 | L1 | Python + GPU stack: `jax[cuda12]`, `fdtdx` | **uv** (`uv.lock`) | predominantly prebuilt wheels (CUDA runtime included), not source builds — uv's job |
-| L2 | C++/MPI simulation stack: Meep, MPICH, HDF5-MPI, and the cluster user-space layer (Lmod, Apptainer) | **spack** (`spack/env/spack.lock`, `spack/tools/spack.lock`) | compiled scientific software with a real dependency DAG — spack's home turf, and the common language of HPC clusters |
+| L2 | C++/MPI simulation stack: Meep, MPICH, HDF5-MPI, plus Lmod for the module interface | **spack** (`spack/env/spack.lock`, `spack/tools/spack.lock`) | compiled scientific software with a real dependency DAG — spack's home turf, and the common language of HPC clusters |
 | L3 | Glue between L1 and L2 | `env.sh` (from `env.sh.example`) + env vars (`INVDX_MEEP_ENV`, `INVDX_GPU`) | machine-specific values never enter git |
 
 ```mermaid
@@ -52,8 +52,9 @@ or source.
 Two independent spack **environments** live under `spack/`, not one:
 
 - `spack/env/` — Meep + its physics dependency chain (frozen; see below).
-- `spack/tools/` — Lmod and Apptainer, the cluster-user-space layer. Kept
-  separate so that installing/upgrading the tools chain (lua, go, glib, ...)
+- `spack/tools/` — Lmod, so `module load meep` works against the environment
+  next door. Site-provided on a real cluster; this is for machines without it.
+  Kept separate so that installing or upgrading the tools chain (lua, tcl, ...)
   can never perturb the concretization that produces `meep@1.34.0` — the two
   `spack.yaml`/`spack.lock` pairs are independent inputs, and `spack/env/`'s
   stay frozen while the tools chain moves ("What the lockfile locks" below
@@ -76,7 +77,7 @@ bash spack/bootstrap.sh
 # concretize+install for spack/env — see that script if running by hand)
 spack -e spack/env install
 
-# L2: cluster user-space layer (lmod + apptainer), optional but recommended
+# L2: Lmod, only if your machine has no module system (a cluster will)
 spack -e spack/tools install
 spack module lmod refresh -y      # see "Module interface" below for scope
 
@@ -205,18 +206,6 @@ None of this is a bug in this project's spack.yaml or recipe — it's what you
 get by default combining a non-`extends("python")` recipe with Lmod's
 module-per-prefix model, and it's exactly the kind of gap the view was
 built to route around.
-
-### Apptainer (optional, forward-looking)
-
-`spack/tools/spack.yaml` also installs Apptainer. It isn't wired into any
-invdx workflow today — the point is a working `.sif` container toolchain
-sitting ready for whenever this project (or its results) needs to move to
-a different cluster. Smoke test:
-
-```bash
-apptainer --version
-apptainer exec docker://alpine cat /etc/os-release   # rootless, userns mode
-```
 
 ## Spack, explained for a first-timer
 
@@ -398,9 +387,9 @@ environment where spack's own bootstrap (cloning `spack-packages` over git)
 and uv's wheel downloads both stop working, and something has to pin a
 toolchain from a single offline flake input instead. Not the situation
 targeted here: the reference environment has sudo and outbound network
-access, and Lmod/Apptainer both have first-class spack recipes, so one tool
-(spack) covers the whole cluster-user-space layer already provisioned here —
-a second package manager would add surface without adding capability.
+access, and Lmod has a first-class spack recipe, so one tool (spack) already
+covers everything L2 needs — a second package manager would add surface
+without adding capability.
 
 **pixi** (`pixi.toml`, repo root) is a prepared fallback for the L2 Meep
 chain specifically, not installed or active. Switch to it if any of:

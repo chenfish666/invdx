@@ -54,6 +54,7 @@ explained.
 | **reproduce a literature benchmark** | `make phc-bend` (~2 min, CPU) | — | [docs/phc-bend-walkthrough.md](docs/phc-bend-walkthrough.md) |
 | **learn where the adjoint gradient comes from** | `python scripts/09_toy_adjoint.py` (CPU) | — | [tutorials/](tutorials/) |
 | **know the environment is intact** | `make check` (~10 s) | `make gates` (~3 min) | [docs/env.md](docs/env.md) |
+| **simulate my own device, not the bundled one** | copy `problems/phc_bend.py` (the smaller of the two) | — | [docs/new-problem.md](docs/new-problem.md) |
 
 `make help` lists every target. `make runs` tells you which run directories can
 be fed to the `RUN=` entries above — `runs/` also holds gate runs, benchmarks

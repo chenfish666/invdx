@@ -1,13 +1,21 @@
 # A second spack environment, separate from ../env/ (the meep environment,
 # which is frozen and must not be disturbed).
 #
-# This one holds only cluster user-space tooling: lmod (the `module` command)
-# and apptainer (container packaging, for a future .sif migration).
+# It holds one thing: Lmod, so that `module load meep` works against the meep
+# environment next door. On a real cluster Lmod is provided by the site and
+# this environment is unnecessary -- it exists for machines that have no
+# module system, or only the older Tcl `environment-modules`, which spack's
+# hierarchical module generation does not target.
+#
+# Deliberately NOT here: a container toolchain. Packaging this project into a
+# .sif is a reasonable thing to want on a multi-node cluster, but it is the
+# cluster user's call how to do it, and shipping an unused toolchain reads as
+# a feature the project has when it does not.
+#
 # Requires spack v1.2.0; see ../bootstrap.sh to bootstrap it.
 spack:
   specs:
   - lmod
-  - apptainer
   packages:
     all:
       require:

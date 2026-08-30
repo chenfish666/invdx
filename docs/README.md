@@ -34,6 +34,16 @@ commands rather than pages, so it carries no language tag.)
   engine stays isolated), and what would break if one disappeared.
   **Languages:** English.
 
+## How-to
+
+- [`new-problem.md`](new-problem.md) — add your own device to the toolbox:
+  what a problem module has to provide, which file to copy from, how to look
+  at the geometry before paying for a simulation, and the convention
+  contracts that give a wrong answer quietly rather than raising. Honest
+  about what is not covered yet — two of the six gates are wired to the
+  bundled example and a new problem does not inherit them.
+  **Languages:** English.
+
 ## Method notes
 
 - [`optimize.md`](optimize.md) — the inverse-design loop: the
