@@ -85,7 +85,7 @@ $PY scripts/06_phc_bend.py --stage gap --tag walkthrough
 ```
 
 Expect: the stopband (T < −20 dB, floor around −50 dB) lands at
-**f ≈ 0.27–0.41**.
+**f ≈ 0.255–0.41**.
 
 Before you hold that up against the literature's 0.29–0.41, there is a physical
 detail worth getting straight: what we measure is **transmission at normal
@@ -93,7 +93,7 @@ incidence (the Γ-X direction)**, and its stopband is wider than the *complete*
 gap — the complete gap is the intersection of the stopbands over all propagation
 directions, and its lower edge is usually set by the M direction. So the correct
 criterion is that **our stopband must contain the literature's complete gap**
-(✓ 0.27–0.41 ⊇ 0.29–0.41), not that the edges agree point by point. The two
+(✓ 0.255–0.41 ⊇ 0.29–0.41), not that the edges agree point by point. The two
 independent engines (toy and Meep) put the stopband edges within ~0.01 of each
 other, and that carries more evidential weight than matching a single number from
 a paper: one more application of **lesson 6** in
@@ -113,7 +113,7 @@ Hands-on experiments (do at least one):
 $PY scripts/06_phc_bend.py --stage bend --tag walkthrough
 ```
 
-Expect: **T ≈ 0.85–1.1 inside the gap** — the gap forbids light from entering the
+Expect: **T ≈ 0.84–1.15 inside the gap** — the gap forbids light from entering the
 crystal, so it has no choice but to follow the channel of missing rods around
 the 90° corner, almost losslessly. That is the magic of a photonic-crystal
 waveguide (the high-transmission bend of Mekis et al. 1996), and the core result

@@ -1,8 +1,14 @@
 #!/usr/bin/env python
-"""Independent-engine verification of a grating_coupler design (the reason invdx has a
-second engine): load a grating_coupler run's binarized design profile, re-measure it on
-fdtdx, and report the quantities a results table needs — CE spectrum, ridge,
-linewidth, and optionally the CD-corner sensitivity.
+"""Independent re-measurement of a grating_coupler design: load a grating_coupler run's
+binarized design profile, re-measure it on fdtdx, and report the quantities a
+results table needs — CE spectrum, ridge, linewidth, and optionally the
+CD-corner sensitivity.
+
+Independent of the optimizer, not of the engine: this is still fdtdx, but the
+design goes in through the block-geometry route (`profile_teeth`) instead of
+the optimizer's Device voxels, on a finer grid and a dense spectrum. Meep is
+not involved -- the bridge has no grating-coupler task (see
+`engines/meep_worker.py` for the tasks it does have).
 
   python scripts/07_grating_coupler_verify_design.py --run runs/<dir> \
       [--set spacing_um=0.010] [--corners] [--tag verify]
@@ -16,7 +22,7 @@ tooth edges land ON fdtdx cell boundaries and the effective-duty
 discretization error (conventions lesson 6; the ridge wavelength shifts
 measurably with linewidth) is zero by construction.
 
-Cross-engine acceptance is SPECTRAL: compare the CE(lambda) ridge shape and
+Acceptance is SPECTRAL: compare the CE(lambda) ridge shape and
 peak against the optimizer's own binarize-validation numbers, never a single
 wavelength.
 """

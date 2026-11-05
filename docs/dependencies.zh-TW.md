@@ -211,9 +211,13 @@ NVIDIA 那些 wheel 「沒有通報」的意思是「查不到紀錄」,不是�
 地基——numpy 還額外身兼兩個環境之間唯一的共通格式。`jaxlib` 和那些 CUDA
 wheel 則是按版本焊死在 JAX 上的。
 
-**最貴的那一個。** `fdtdx` 是整個系統裡代價最高的相依。時間可逆的 FDTD
-反向傳播——記憶體對時間步數是 O(1) 而不是 O(T)——正是三維優化能塞進
-單張 23 GB GPU 的唯一原因。每個替代方案都各有一個很具體的地方輸掉:
+**最貴的那一個。** `fdtdx` 是整個系統裡代價最高的相依。可微分的 FDTD
+加上梯度重算用的 checkpoint——記憶體由 checkpoint 個數決定,而不是由時間步數
+決定——正是優化能塞進單張 23 GB GPU 的原因。它的時間可逆模式(記憶體對時間
+步數是 O(1),也是當初選它的理由)在這個 repo 的模擬場域(scene)上反而更差:
+把 PML(perfectly matched layer,FDTD 的吸收邊界)記錄 20k 步要花上數百 GB
+(見 `optimize.zh-TW.md`〈checkpoint 與 resume〉)。每個替代方案都各有一個很具體
+的地方輸掉:
 Meep 的伴隨法(adjoint)求解器綁在 CPU 上,慢一到兩個數量級;Tidy3D 是
 商用的,而且跑在雲端;repo 內的 `toy/fdtd2d_jax.py` 是二維教學用實作,
 離能正式運轉(production)還差得很遠。針對這一項有一個刻意做的緩解措施:

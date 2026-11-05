@@ -11,8 +11,9 @@ incidence angles:
   theta=0deg  : a symmetric grating at vertical incidence is physics-limited
                 by second-order Bragg, so CE collapses
 
-Agreement between the two independent engines validates both the problem
-layer and the second-order-Bragg explanation of the theta=0 collapse.
+Agreement with the Meep reference at theta=10 checks the problem layer; the
+theta=0 collapse checks the second-order-Bragg explanation (that case is an
+expectation on fdtdx alone, not a comparison with Meep).
 
   python scripts/03_grating_coupler_baseline.py                          # ~minutes
   python scripts/03_grating_coupler_baseline.py --set spacing_um=0.025   # quick look
@@ -32,6 +33,11 @@ from invdx import runio
 # linewidth, and the ridge wavelength moves measurably with tooth width — so
 # acceptance is on the ridge peak (within ~2 dB of the reference peak below)
 # and the ridge wavelength is reported, never on CE at exactly 1310 nm.
+#
+# Provenance: this value came from a Meep run made outside this repository.
+# The bridge (engines/meep_worker.py) has no grating-coupler task, so nothing
+# here can regenerate it; treat it as an external reference number, not as a
+# cross-check this repo reruns.
 REFERENCE_PEAK_DB = -10.1
 
 
