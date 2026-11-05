@@ -50,27 +50,8 @@ compared against a fabricated device.
 
 ### Hardware these results come from
 
-- **Main GPU: NVIDIA Quadro RTX 6000** (Turing TU102, compute capability
-  7.5; 24 GB GDDR6, 384-bit, 672 GB/s; 4,608 CUDA cores). JAX can allocate
-  about 23 GiB of it. The speed, capacity and memory numbers above were
-  measured on this card.
-- **Second architecture: NVIDIA RTX 6000 Ada Generation** (AD102, compute
-  capability 8.9; 48 GB GDDR6 with ECC, 384-bit, 960 GB/s; 18,176 CUDA
-  cores). Used to confirm the memory slope and the gradient checks on a
-  different GPU generation.
-- **One run, one GPU.** The dual-GPU scripts run independent simulations on
-  two cards in one node; nothing splits a single run across cards or nodes.
-  Sharing one card between simulations does not pay either: CUDA MPS lost
-  58% of aggregate throughput and time-slicing gained nothing, because a
-  single 0.5M-cell simulation already keeps the card about 80% busy. Batch
-  small simulations with `jax.vmap` instead.
-- **CPU side (Meep, MPI): a 16-core AMD Zen 4 machine and a dual-socket
-  Intel Xeon machine.** FDTD is memory-bandwidth bound, so fewer ranks won:
-  Meep peaked at 8 ranks on the Zen 4 and at 16 NUMA-bound ranks on the
-  Xeon. Sweep your own machine with `scripts/12_cpu_tuning.py`.
-- **Network: 1 GbE between nodes.** Halo exchange would cost about 64 ms per
-  step against 5–15 ms of compute, so cross-node domain decomposition was
-  ruled out; independent jobs go to the other node instead.
+- GPU: NVIDIA Quadro RTX 6000, NVIDIA RTX 6000 Ada Generation
+- CPU: AMD Ryzen 9 7950X, dual-socket Intel Xeon Gold
 
 ## Example problems
 
