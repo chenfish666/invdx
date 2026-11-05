@@ -146,8 +146,9 @@ def _spectrum_rows(results):
         rows = [(lams[0], ce, ce_db)]
         return rows, ("results.json top-level CE/CE_dB: raw value from the "
                       "run, may be a continuous-design optimizer trace value "
-                      "rather than an independent re-measurement (see the "
-                      "project README's binarization-gap note)")
+                      "rather than an independent re-measurement (see "
+                      "docs/optimize.md, \"The optimizer's number is not the "
+                      "result\")")
 
     return None, "no CE/spectrum data found in results.json"
 

@@ -8,14 +8,14 @@ Full results: the `runs/` directory the command prints on its very first line.
 ## Actual output
 
 ```
-[run] outputs -> runs/20260830-110925-toy-adjoint
+[run] outputs -> runs/20261105-063514-toy-adjoint
 [base] intact bend   mean T = 0.972
 [base] damaged bend  mean T = 0.613   (defect (1, 0), benchmark Layer-I)
-[adjoint] one backward pass = gradients for all 400 design-region parameters  (0.5s, incl. compile)
-[gradcheck] pixel (np.int64(17), np.int64(12)): adjoint -3.668794e-07  FD -3.668793e-07  rel err 1.61e-07
-[gradcheck] pixel (np.int64(10), np.int64(5)): adjoint +5.088147e-08  FD +5.088152e-08  rel err 9.79e-07
-[gradcheck] pixel (np.int64(6), np.int64(0)): adjoint -9.336720e-07  FD -9.336726e-07  rel err 6.67e-07
-[gradcheck] PASS (worst 9.79e-07 < 1e-5)
+[adjoint] one backward pass = gradients for all 400 design-region parameters  (0.7s, incl. compile)
+[gradcheck] pixel (np.int64(17), np.int64(12)): adjoint -3.668794e-07  FD -3.668794e-07  rel err 1.42e-07
+[gradcheck] pixel (np.int64(10), np.int64(5)): adjoint +5.088147e-08  FD +5.088147e-08  rel err 1.12e-07
+[gradcheck] pixel (np.int64(6), np.int64(0)): adjoint -9.336720e-07  FD -9.336721e-07  rel err 1.92e-07
+[gradcheck] PASS (worst 1.92e-07 < 1e-5)
 [opt] iter   0  mean T = 0.613
 [opt] iter   5  mean T = 0.615
 [opt] iter  10  mean T = 0.616
@@ -34,13 +34,18 @@ Full results: the `runs/` directory the command prints on its very first line.
 [design] healed-region density (2x2 lattice, one entry = one a x a cell):
          0.00 0.03
          0.07 0.15
-[done] runs/20260830-110925-toy-adjoint/results.json
+[done] runs/20261105-063514-toy-adjoint/results.json
 ```
 
-Two things to know before you diff your own run against this one. The run
-directory name (a timestamp) and the `[adjoint]` timing change every time;
-everything else above is deterministic on CPU + float64 and reproduced
-bit-for-bit across two independent runs. And the `np.int64(...)` wrappers in
+Three things to know before you diff your own run against this one. The run
+directory name (a timestamp) and the `[adjoint]` timing change every time.
+The `FD` column can move in its last printed digit from one CPU to another:
+that is floating-point rounding in the two perturbed runs, and it is why the
+step is h = 1e-3 rather than 1e-4 (at 1e-4 the rounding alone pushed pixel
+(10, 5) to a relative error of 2.3e-5 on one machine, failing the 1e-5 check
+with every adjoint value unchanged). Everything else above is deterministic
+on CPU + float64: the adjoint, optimization and design lines reproduced to
+every printed digit on a second machine. And the `np.int64(...)` wrappers in
 the `[gradcheck]` lines are numpy's scalar repr, not part of the pixel index —
 those are pixels (17, 12), (10, 5) and (6, 0).
 
@@ -51,8 +56,8 @@ printing a `[done]` line.
 ## Three things worth remembering
 
 1. **The power of the adjoint method, quantified.** 400 parameters in the
-   design region, and one backward pass hands you all 400 gradients in 0.5
-   seconds. Getting the same information by finite differences takes 800
+   design region, and one backward pass hands you all 400 gradients in under
+   a second. Getting the same information by finite differences takes 800
    forward simulations — two per parameter, for a central difference. That
    800:1 ratio scales linearly with the number of parameters: a 3D design with
    thousands of parameters buys you a ratio in the thousands. This is your

@@ -8,14 +8,14 @@
 ## 實際輸出
 
 ```
-[run] outputs -> runs/20260830-110925-toy-adjoint
+[run] outputs -> runs/20261105-063514-toy-adjoint
 [base] intact bend   mean T = 0.972
 [base] damaged bend  mean T = 0.613   (defect (1, 0), benchmark Layer-I)
-[adjoint] one backward pass = gradients for all 400 design-region parameters  (0.5s, incl. compile)
-[gradcheck] pixel (np.int64(17), np.int64(12)): adjoint -3.668794e-07  FD -3.668793e-07  rel err 1.61e-07
-[gradcheck] pixel (np.int64(10), np.int64(5)): adjoint +5.088147e-08  FD +5.088152e-08  rel err 9.79e-07
-[gradcheck] pixel (np.int64(6), np.int64(0)): adjoint -9.336720e-07  FD -9.336726e-07  rel err 6.67e-07
-[gradcheck] PASS (worst 9.79e-07 < 1e-5)
+[adjoint] one backward pass = gradients for all 400 design-region parameters  (0.7s, incl. compile)
+[gradcheck] pixel (np.int64(17), np.int64(12)): adjoint -3.668794e-07  FD -3.668794e-07  rel err 1.42e-07
+[gradcheck] pixel (np.int64(10), np.int64(5)): adjoint +5.088147e-08  FD +5.088147e-08  rel err 1.12e-07
+[gradcheck] pixel (np.int64(6), np.int64(0)): adjoint -9.336720e-07  FD -9.336721e-07  rel err 1.92e-07
+[gradcheck] PASS (worst 1.92e-07 < 1e-5)
 [opt] iter   0  mean T = 0.613
 [opt] iter   5  mean T = 0.615
 [opt] iter  10  mean T = 0.616
@@ -34,14 +34,18 @@
 [design] healed-region density (2x2 lattice, one entry = one a x a cell):
          0.00 0.03
          0.07 0.15
-[done] runs/20260830-110925-toy-adjoint/results.json
+[done] runs/20261105-063514-toy-adjoint/results.json
 ```
 
-跟自己跑出來的東西對照時,有兩個地方本來就會不一樣:run 目錄名(時間戳)、
-還有 `[adjoint]` 那個秒數。其餘的數字在 CPU + float64 下是 deterministic 的
-(同一台機器、同一版本重跑,逐位元相同),我們也用兩次獨立執行驗過。
-另外,`[gradcheck]` 那三行裡的 `np.int64(...)` 是 numpy 純量的 repr,
-不是索引的一部分——它們就是像素 (17, 12)、(10, 5)、(6, 0)。
+跟自己跑出來的東西對照時,有三件事要先知道。run 目錄名(時間戳)和
+`[adjoint]` 那個秒數每次都不一樣。`FD` 那一欄換一顆 CPU 可能在最後一位數上
+跳動:那是兩次擾動模擬的浮點捨入誤差,也正是步長取 h = 1e-3、而不是 1e-4
+的原因(h = 1e-4 時,光是捨入誤差就讓像素 (10, 5) 在某一台機器上的相對誤差
+變成 2.3e-5,1e-5 那道檢查就沒過,而 adjoint 的數值一位都沒變)。其餘的數字
+在 CPU + float64 下是 deterministic 的:adjoint、優化和設計那幾行,換到第二台
+機器上重跑,印出來的每一位都相同。另外,`[gradcheck]` 那三行裡的
+`np.int64(...)` 是 numpy 純量的 repr,不是索引的一部分——它們就是像素
+(17, 12)、(10, 5)、(6, 0)。
 
 加 `--gradcheck-only` 的話,輸出停在 `[gradcheck] PASS` 那行——
 它寫完 `results.json` 就收工,不會印 `[done]`。
@@ -49,7 +53,7 @@
 ## 三個值得記住的點
 
 1. **adjoint(伴隨法)的威力,量化**:設計區 400 個參數,梯度一次反向傳播
-   0.5 秒全拿。同樣的資訊用有限差分要 800 次正向模擬——中央差分
+   不到一秒全拿。同樣的資訊用有限差分要 800 次正向模擬——中央差分
    每個參數兩次。這個 800:1 的比值隨參數數目線性放大——上千維的
    三維設計就是上千比一。這就是「為什麼逆向設計非 adjoint 不可」的
    第一手體驗。

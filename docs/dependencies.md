@@ -201,9 +201,13 @@ substrate — numpy is additionally the only shared format between the two
 environments. `jaxlib` and the CUDA wheels are welded to JAX by version.
 
 **The expensive one.** `fdtdx` is the costliest dependency in the system.
-Time-reversible FDTD backpropagation — O(1) memory in timesteps rather than
-O(T) — is the reason a 3D optimization fits on a single 23 GB GPU at all.
-The alternatives are all worse in a specific way: Meep's adjoint solver is
+Differentiable FDTD with gradient checkpointing — memory set by the number of
+checkpoints rather than by the number of time steps — is what lets an
+optimization fit on a single 23 GB GPU at all. Its time-reversible mode, O(1)
+in time steps and the reason it was first chosen, turned out worse on this
+repo's scenes: recording the PML (perfectly matched layer, the absorbing
+boundary) for 20k steps costs hundreds of GB (`optimize.md`, "Checkpoint and
+resume"). The alternatives are all worse in a specific way: Meep's adjoint solver is
 CPU-bound and one to two orders of magnitude slower, Tidy3D is commercial and
 cloud-hosted, and the in-repo `toy/fdtd2d_jax.py` is a 2D teaching
 implementation, nowhere near production. There is one deliberate mitigation:

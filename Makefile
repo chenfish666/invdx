@@ -1,4 +1,4 @@
-# Convenience targets. uv owns fdtdx/JAX (see README Environment); the meep
+# Convenience targets. uv owns fdtdx/JAX (see docs/env.md); the meep
 # env is only ever reached through the subprocess bridge (engines/meep_bridge.py).
 # Every target here is a command, not a file. Without this, `make runs`
 # silently does nothing because runs/ is a real directory and make decides it
@@ -132,12 +132,12 @@ coupler-opt-smoke:   ## ~10 min: 4 iterations, proves the whole path runs
 	CUDA_VISIBLE_DEVICES=$(GPU) $(PY) scripts/15_grating_coupler_optimize.py \
 	    --tag smoke --iters 4 --set sim_time_s=0.3e-12
 
-coupler-opt:         ## one inverse-design round on the grating coupler (~13 h, run detached)
+coupler-opt:         ## one inverse-design round on the bundled grating-coupler example (~13 h, run detached)
 	CUDA_VISIBLE_DEVICES=$(GPU) $(PY) scripts/15_grating_coupler_optimize.py --tag opt --gradcheck
 
-verify:           ## second-engine check of a finished design: make verify RUN=runs/<dir>
+verify:           ## re-measure a finished coupler design on fdtdx: make verify RUN=runs/<dir> [ARGS="--corners --s11"]
 	$(call need_run)
-	CUDA_VISIBLE_DEVICES=$(GPU) $(PY) scripts/07_grating_coupler_verify_design.py --run $(RUN)
+	CUDA_VISIBLE_DEVICES=$(GPU) $(PY) scripts/07_grating_coupler_verify_design.py --run $(RUN) $(ARGS)
 
 tolerance:        ## fabrication tolerance report: make tolerance RUN=runs/<dir> [LAMS=1.27,1.35,9]
 	$(call need_run)

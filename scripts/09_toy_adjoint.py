@@ -125,7 +125,15 @@ def main():
           f"design-region parameters  ({t_grad:.1f}s, incl. compile)")
     rng = np.random.default_rng(0)
     idx = [tuple(rng.integers(0, s) for s in g.shape) for _ in range(3)]
-    h = 1e-4
+    # h = 1e-3 is where a central difference in float64 balances its two
+    # errors on this objective. Rounding noise goes as eps*|T|/h (about 1e-12
+    # at h = 1e-4, which next to a 5e-8 gradient is a relative error of
+    # ~2e-5); truncation goes as h^2 and takes over by h = 1e-2. An h-scan on
+    # the three pixels below gave 1e-6..2e-5 at 1e-4 (the spread depends on
+    # the CPU), 1e-7..2e-7 at 1e-3 and 1.6e-5 at 1e-2. At 1e-4 the 1e-5 bar
+    # was decided by rounding luck: it passed on one machine and failed on
+    # another with the adjoint values identical to every printed digit.
+    h = 1e-3
     worst = 0.0
     for ij in idx:
         e = jnp.zeros_like(theta).at[ij].set(h)
