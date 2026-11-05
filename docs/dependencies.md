@@ -68,7 +68,7 @@ exactly and kept behind an interface that could be replaced.
 | `fdtdx` | 0.6.2 (pinned `==`) | The GPU FDTD engine, imported by 19 files. Chosen for `reversible_fdtd` — time-reversible backpropagation, O(1) memory in timesteps | Academic lab (published in JOSS, peer-reviewed) | MIT |
 | `optax` | 0.2.8 | Four lines: `optax.adam` and `optax.apply_updates` in `optimize.py` and one toy script | Company (Google DeepMind) | Apache-2.0 |
 | `equinox` | 0.13.8 | **Not declared anywhere in `pyproject.toml`.** `engines/fdtdx_checkpoint_buffers.py` imports `equinox.internal` directly for the `buffers=` kwarg. Arrives only as a transitive dependency of fdtdx | Single maintainer | Apache-2.0 |
-| `matplotlib` | 3.11.1 | Declared under `[dev]`, but used by main-line entry points: `viz/plots.py` (`make viz`) and the tolerance report (`make tolerance`) | Foundation (NumFOCUS) | PSF-based permissive (non-copyleft) |
+| `matplotlib` | 3.11.1 | Declared under `[dev]`, but used by main-line entry points such as `viz/plots.py` (`make viz`) | Foundation (NumFOCUS) | PSF-based permissive (non-copyleft) |
 | `pytest` | 9.1.1 | Test suite only | Foundation-adjacent, multi-maintainer | MIT |
 
 Only two things are pinned exactly — `jax==0.11.0` and `fdtdx==0.6.2`. The
@@ -206,13 +206,13 @@ checkpoints rather than by the number of time steps — is what lets an
 optimization fit on a single 23 GB GPU at all. Its time-reversible mode, O(1)
 in time steps and the reason it was first chosen, turned out worse on this
 repo's scenes: recording the PML (perfectly matched layer, the absorbing
-boundary) for 20k steps costs hundreds of GB (`optimize.md`, "Checkpoint and
-resume"). The alternatives are all worse in a specific way: Meep's adjoint solver is
+boundary) for 20k steps costs hundreds of GB. The alternatives are all worse
+in a specific way: Meep's adjoint solver is
 CPU-bound and one to two orders of magnitude slower, Tidy3D is commercial and
 cloud-hosted, and the in-repo `toy/fdtd2d_jax.py` is a 2D teaching
 implementation, nowhere near production. There is one deliberate mitigation:
 `export/handoff.py` emits a tool-neutral package (permittivity grid, design
-vector, coupling-efficiency spectra, manifest), so design *results* are not
+vector, spectra, manifest), so design *results* are not
 locked to the engine that produced them.
 
 **Cheap to replace.** `scipy` contributes two morphological functions used

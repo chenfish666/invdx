@@ -24,17 +24,16 @@
 ## 2026-08-17 — gradcheck 失敗的成因被誤判成 float32 的 cancellation
 
 **原本的主張**(gradcheck 的 docstring 最初就是這樣寫的;gradcheck 是拿有限差分
-去驗 adjoint 梯度算得對不對的那道檢查,同時也是函式名):在 grating_coupler 的
+去驗 adjoint 梯度算得對不對的那道檢查,同時也是函式名):在
 `Device`(fdtdx 裡代表可設計區的那個物件)voxel(三維網格的一格)上,有限差分
 (finite difference,FD)與 adjoint(伴隨法)對不起來,原因是「兩個幾乎相等的
 float32 相減」——也就是 cancellation 造成的雜訊(兩數相減把有效位數吃掉;不譯,
 以免和光學的相消干涉混淆)——而訊號下限(signal floor)取樣器(只測梯度達到峰值
 5% 以上的 voxel)就是為了處理它。
 
-**推翻它的證據**:θ=10 的第一次 run 是被一次 gradcheck 失敗中止的(voxel 213,
-相對誤差 6.29%),當時跑的是正式規模(production-scale):0.8 ps、θ=10
-(θ 是光纖的入射角,單位是度;θ=0 就是完全垂直入射)。我們把這次失敗**逐位元
-重現**,再對步長 h 做掃描(h-scan),得到四項結果:
+**推翻它的證據**:第一次完整尺寸的 run 是被一次 gradcheck 失敗中止的(voxel
+213,相對誤差 6.29%),當時跑的是正式規模(production-scale):0.8 ps。我們把
+這次失敗**逐位元重現**,再對步長 h 做掃描(h-scan),得到四項結果:
 
 - 殘差隨 **h³** 縮放(h 每減半殘差 ×0.126,約當 1/8);若真是 cancellation 雜訊,
   這條線應該是平的。
@@ -42,7 +41,7 @@ float32 相減」——也就是 cancellation 造成的雜訊(兩數相減把有
 - 用同樣那兩個 h 值做 Richardson extrapolation(理查森外推),與 adjoint 吻合到
   **0.0106%**。
 - 失敗的 voxel 根本不是弱訊號:voxel 213 的梯度有峰值的 15%,是訊號下限(5%)的
-  3 倍;而且 θ=10 的梯度訊號比 θ=0 還**強** 63%。
+  3 倍;而且失敗那組設定的梯度訊號,比另一組通過的設定還**強** 63%。
 
 這個 h 掃描可以直接拿那次中止的 run 自己的 `cmd.txt`/`config.json` 重現;同一組
 雙 h 比較現在以 `fd_consistency` 之名常駐在 `gradcheck()` 裡。

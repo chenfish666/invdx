@@ -89,7 +89,7 @@ MPI/HDF5/GSL——也就是獨立的交叉驗證引擎。它從原始碼編譯,�
 | `fdtdx` | 0.6.2(`==` pin 死) | GPU FDTD 引擎,19 個檔案 import。選它的理由是 `reversible_fdtd`——時間可逆的反向傳播,記憶體對時間步數是 O(1) | 學術實驗室(登在 JOSS,經同行審查) | MIT |
 | `optax` | 0.2.8 | 四行:`optimize.py` 和一支 toy 腳本裡的 `optax.adam` 與 `optax.apply_updates` | 公司(Google DeepMind) | Apache-2.0 |
 | `equinox` | 0.13.8 | **`pyproject.toml` 裡任何地方都沒宣告它。** `engines/fdtdx_checkpoint_buffers.py` 直接 import `equinox.internal` 來用 `buffers=` 這個關鍵字引數(kwarg)。它純粹是被 fdtdx 當作間接相依帶進來的 | 單一維護者 | Apache-2.0 |
-| `matplotlib` | 3.11.1 | 宣告在 `[dev]` 底下,卻被主線進入點用到:`viz/plots.py`(`make viz`)和容差報告(`make tolerance`) | 基金會(NumFOCUS) | 以 PSF 為基礎的寬鬆授權(非 copyleft) |
+| `matplotlib` | 3.11.1 | 宣告在 `[dev]` 底下,卻被主線進入點用到,例如 `viz/plots.py`(`make viz`) | 基金會(NumFOCUS) | 以 PSF 為基礎的寬鬆授權(非 copyleft) |
 | `pytest` | 9.1.1 | 只有測試套件用 | 不是基金會本身,但屬同一圈生態;多位維護者 | MIT |
 
 整個環境只有兩個東西被精確 pin 死:`jax==0.11.0` 和 `fdtdx==0.6.2`。
@@ -215,14 +215,13 @@ wheel 則是按版本焊死在 JAX 上的。
 加上梯度重算用的 checkpoint——記憶體由 checkpoint 個數決定,而不是由時間步數
 決定——正是優化能塞進單張 23 GB GPU 的原因。它的時間可逆模式(記憶體對時間
 步數是 O(1),也是當初選它的理由)在這個 repo 的模擬場域(scene)上反而更差:
-把 PML(perfectly matched layer,FDTD 的吸收邊界)記錄 20k 步要花上數百 GB
-(見 `optimize.zh-TW.md`〈checkpoint 與 resume〉)。每個替代方案都各有一個很具體
-的地方輸掉:
+把 PML(perfectly matched layer,FDTD 的吸收邊界)記錄 20k 步要花上數百 GB。
+每個替代方案都各有一個很具體的地方輸掉:
 Meep 的伴隨法(adjoint)求解器綁在 CPU 上,慢一到兩個數量級;Tidy3D 是
 商用的,而且跑在雲端;repo 內的 `toy/fdtd2d_jax.py` 是二維教學用實作,
 離能正式運轉(production)還差得很遠。針對這一項有一個刻意做的緩解措施:
 `export/handoff.py` 會輸出一包不綁工具的資料(介電常數網格、設計向量、
-耦合效率頻譜,以及一份 manifest——說明這包裡有什麼的清單檔),讓**設計結果**
+頻譜,以及一份 manifest——說明這包裡有什麼的清單檔),讓**設計結果**
 不被鎖死在產生它的那個引擎上。
 
 **換掉很便宜。** `scipy` 貢獻的是兩個只拿來做量測的形態學函式;拿 3×3

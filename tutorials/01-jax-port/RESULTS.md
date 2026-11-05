@@ -49,6 +49,6 @@ came from printed `Quadro RTX 6000`. The word in front of it is
 ## What this lesson sets you up for
 
 That `/ eps[1:-1, 1:-1]` in the E update now lives inside a differentiable XLA
-program. Lesson 2 (`tutorials/02-first-adjoint`) goes straight for it:
-`jax.grad(transmission)(eps)` gets you "how each cell's material affects the
-output" in one shot — the adjoint method, automatically.
+program, which is what makes `jax.grad(transmission)(eps)` possible: "how
+each cell's material affects the output" in one shot — the adjoint method,
+automatically.
