@@ -214,7 +214,7 @@ device anyone designs.
 | engine | when | what it means for the module |
 |---|---|---|
 | the toy 2D engine (`src/invdx/toy/`), CPU | 2D TM problems, cheap anchors, learning | keep the module numpy-pure — no jax, no fdtdx imports — and `engines/meep_worker.py` can import it *inside* the Meep environment, so both engines consume one geometry definition |
-| fdtdx, GPU | quasi-2D or 3D, adjoint gradients | the module imports jax and fdtdx; the scene factories in `engines/fdtdx_engine.py` show how an fdtdx object list and its placement constraints are assembled |
+| fdtdx, GPU | quasi-2D or 3D, adjoint gradients | the module imports jax and fdtdx; the scene factories in `engines/fdtdx_engine.py` show how an fdtdx object list and its placement constraints are assembled. If the problem also wants the Meep cross-check, give it a numpy-pure half that the worker can import, and have the jax module import its geometry from there |
 | Meep, through the bridge | an independent 2D cross-check | one more task in `engines/meep_worker.py` (see the map at the end of this page) |
 
 The rest of this page builds a new problem from scratch on the toy engine — a

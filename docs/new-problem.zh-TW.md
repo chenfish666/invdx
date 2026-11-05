@@ -232,7 +232,7 @@ problem,模組層級函式名字的交集是**空的**——它們沒有共用�
 | 引擎 | 什麼時候 | 對模組的意思 |
 |---|---|---|
 | toy 二維引擎(`src/invdx/toy/`),CPU | 二維 TM 的題目、便宜的錨、拿來學 | 讓模組維持純 numpy——不 import jax、也不 import fdtdx——`engines/meep_worker.py` 就能在 Meep 環境**裡面**把它 import 進去,於是兩支引擎吃的是同一份幾何定義 |
-| fdtdx,GPU | quasi-2D 或 3D、需要 adjoint 梯度 | 模組會 import jax 和 fdtdx;`engines/fdtdx_engine.py` 裡的模擬場域(scene)工廠示範了一串 fdtdx 物件和它們的擺放約束怎麼組起來 |
+| fdtdx,GPU | quasi-2D 或 3D、需要 adjoint 梯度 | 模組會 import jax 和 fdtdx;`engines/fdtdx_engine.py` 裡的模擬場域(scene)工廠示範了一串 fdtdx 物件和它們的擺放約束怎麼組起來。如果這個 problem 也要拿 Meep 交叉核對,就給它一個純 numpy 的另一半讓 worker import,jax 那個模組再從那裡拿幾何 |
 | Meep,經由 bridge | 一個獨立的二維交叉核對 | 在 `engines/meep_worker.py` 裡多加一項工作(見本頁最後那張對照表) |
 
 這一頁接下來會在 toy 引擎上從零建一個新的 problem——一塊介電平板,拿一個閉式解
