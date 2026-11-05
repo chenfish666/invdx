@@ -35,10 +35,8 @@ run 目錄也都記下了設定、指令、環境和硬體。在這個基礎上,
 | 一張 24 GB 卡上跑得起來的最大正向 run | 原版 fdtdx 是 15.6M cell(到 27M 記憶體就爆掉,OOM);快速路徑加記憶體回收是 64M cell |
 | adjoint 的記憶體 | 峰值 ≈ (372.18 + 268.0329·C) bytes/cell,C 是梯度重算用的 checkpoint 數(不是斷點續跑那種);斜率在 Turing 和 Ada 上一樣 |
 
-表裡的 cell 即 voxel,也就是網格的一格。每個數字連同它出自哪次 run、哪個檔案,
-都記在 [docs/journal.zh-TW.md](docs/journal.zh-TW.md) 和
-[docs/RETRACTIONS.zh-TW.md](docs/RETRACTIONS.zh-TW.md) 裡。這裡全部都是模擬,
-沒有任何一項和實際做出來的元件比對過。
+表裡的 cell 即 voxel,也就是網格的一格。這裡全部都是模擬,沒有任何一項和實際
+做出來的元件比對過。
 
 ### 這些成果是在什麼硬體上跑的
 
@@ -137,9 +135,6 @@ Meep 是用 spack 從原始碼建的:[docs/env.zh-TW.md](docs/env.zh-TW.md)。
 - [docs/new-problem.zh-TW.md](docs/new-problem.zh-TW.md):加入你自己的 problem。
 - [docs/env.zh-TW.md](docs/env.zh-TW.md):uv 與 spack 兩層環境,以及怎麼從一份
   乾淨的 clone 重建。
-- [docs/journal.zh-TW.md](docs/journal.zh-TW.md) 與
-  [docs/RETRACTIONS.zh-TW.md](docs/RETRACTIONS.zh-TW.md):一份只增不改的日誌,
-  記下量了什麼、每個數字從哪來;以及後來發現是錯的結論,留著而不是悄悄改掉。
 - [tutorials/01-jax-port/](tutorials/01-jax-port/):把 toy 引擎移植到 JAX 的
   一堂課。
 
@@ -150,7 +145,7 @@ invdx 本身是 MIT。fdtdx 是 MIT;這裡 vendor 進來的那幾個 fdtdx 模�
 invdx 的 process:它在 subprocess bridge 後面當成一支獨立程式執行。Python
 相依樹裡有三個 copyleft 套件,全都未經修改地使用:`tidy3d`
 (LGPL-2.1-or-later,跟著 fdtdx 進來,跑在同一個 process 裡),以及 `certifi`
-和 `tqdm`(MPL-2.0)。完整清單:[docs/dependencies.zh-TW.md](docs/dependencies.zh-TW.md)。
+和 `tqdm`(MPL-2.0)。
 
 ## 引用
 

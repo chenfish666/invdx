@@ -947,8 +947,7 @@ FOM。這個 repo 裡**沒有**與 problem 無關的 `Device` 工廠,所以下�
 [`richardson_fd.richardson_fd_check`](../src/invdx/richardson_fd.py) 對你的梯度
 做有限差分,`gates/g2_gradcheck.py` 用的也是同一個核心。傳給它一個
 `evaluate(sign, h) -> float` 的 closure,讓它擾動一個設計 voxel,它會從兩種步長
-回報 `fd`、`rel_err` 和 `fd_consistency`。有兩條用昂貴代價學到的規則(來龍
-去脈見 [`RETRACTIONS.zh-TW.md`](RETRACTIONS.zh-TW.md)):
+回報 `fd`、`rel_err` 和 `fd_consistency`。有兩條用昂貴代價學到的規則:
 
 - **只檢查梯度達到峰值一定比例的那些 voxel。** 低於那條訊號下限(signal floor)
   的地方,有限差分量到的是 float32 的捨入誤差,不是你的 adjoint。
@@ -1007,7 +1006,5 @@ rasterize,否則你模擬的是另一個結構;優化器自己印出來的數字
 
 ## 接下來讀哪裡
 
-- [`RETRACTIONS.zh-TW.md`](RETRACTIONS.zh-TW.md) —— 第 9 步那兩條規則背後的
-  gradcheck 失敗,完整的來龍去脈。
 - [`env.zh-TW.md`](env.zh-TW.md) —— 環境的兩層分工,萬一這一頁有什麼東西
   import 不起來就去讀它。

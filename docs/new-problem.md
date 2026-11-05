@@ -952,8 +952,7 @@ the differentiable scene and the traced FOM. There is no problem-independent
 gradient with [`richardson_fd.richardson_fd_check`](../src/invdx/richardson_fd.py),
 which is the same core `gates/g2_gradcheck.py` uses. Pass it an `evaluate(sign, h) -> float`
 closure that perturbs one design voxel, and it returns `fd`, `rel_err` and
-`fd_consistency` from two step sizes. Two rules learned the expensive way
-(the story is in [`RETRACTIONS.md`](RETRACTIONS.md)):
+`fd_consistency` from two step sizes. Two rules learned the expensive way:
 
 - Check only voxels carrying a meaningful fraction of the peak gradient.
   Below that floor the finite difference measures float32 rounding, not your
@@ -1015,7 +1014,5 @@ Written down so you can plan, rather than discover it halfway through.
 
 ## Where to go next
 
-- [`RETRACTIONS.md`](RETRACTIONS.md) — the gradcheck failure behind step 9's
-  two rules, told in full.
 - [`env.md`](env.md) — the environment split, if anything in this page failed
   to import.

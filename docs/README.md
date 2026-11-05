@@ -6,53 +6,9 @@ One-line pointer to each doc; start at the top-level [`README.md`](../README.md)
 for the project overview.
 **Languages:** English · [繁體中文](../README.zh-TW.md).
 
-Every page listed below ends with the languages it is available in. A bilingual
-page is a pair — English `X.md` next to Traditional Chinese `X.zh-TW.md` — and
-each half links to the other at the top of the page. (The Export section lists
-commands rather than pages, so it carries no language tag.)
-
-`make bilingual` checks the pairs mechanically — matching code blocks, links,
-heading levels and cross-links — and then enforces the rulings in
-[`glossary.zh-TW.md`](glossary.zh-TW.md): every filename and section name it
-cites must resolve, no rendering it bans may survive anywhere in the Chinese
-tree, and a Chinese form it binds to an English term may not appear where that
-term is missing. Each check prints what it looked at, so a shrinking
-denominator is visible. It does not check prose; only a cold read does that.
-
-A rule this page and the top-level `README.md` are held to for the same
-reason — stated as the rule it is, not as a description of the whole tree,
-because one page named below does not yet meet it: **a precise count does not
-go into prose that nobody regenerates.** How many unit tests there are, how
-many bilingual pairs, how many lines a module runs to — each of those was
-written out by hand once and was wrong within weeks, and a stale number reads
-exactly like a fresh one. So a count on these two pages either comes from the
-command that computes it (`--problem`'s help line lists the registered
-problems; `make bilingual` prints the pairs it found and fails when a floor
-drops; `make runs` lists the run directories) or it is replaced by the
-qualitative claim it was standing in for. The counts that do survive in prose
-are the ones a reader can falsify without leaving the page: "six gates" stays
-because all six are named, one per row, in the gate table, so a seventh gate
-makes the word visibly wrong.
-"178 tests" did not stay, because nothing on the page could ever contradict it.
-
-The known exception is [`dependencies.md`](dependencies.md), which still
-carries three hand-written counts — the Python environment's package total,
-the native environment's, and the number of `nvidia-*` wheels. Nothing
-regenerates them: each is a `grep -c` away from `uv.lock` or
-`spack/env/spack.lock`, and until that is wired in they are only as fresh as
-the last person who re-derived them. Bringing that page under the rule is a
-known to-do, not an oversight this paragraph is unaware of.
-
-## Terminology
-
-- [`glossary.md`](glossary.md) — the terms the Chinese docs bind, and why:
-  one concept that acquired two Chinese names, collisions where the obvious
-  Chinese word already means something else, terms deliberately left in
-  English, and the symbols that must be defined at first use. Grown from
-  repeated cold reads, not from foresight. It holds rulings only — claims
-  about what any file currently says are recomputed by `make bilingual`
-  instead, because this page causes the revisions that would falsify them.
-  **Languages:** English · [繁體中文](glossary.zh-TW.md).
+Every page listed below has a Traditional Chinese twin next to it
+(`X.zh-TW.md`), and each half links to the other at the top of the page.
+The Export section lists commands rather than pages.
 
 ## Tutorials
 
@@ -74,10 +30,6 @@ known to-do, not an oversight this paragraph is unaware of.
   the GPU driver version, and verifies by importing. `bash spack/bootstrap.sh`
   is its L2 (Meep) counterpart. Both are idempotent; `make env-drift` checks
   that the committed lockfiles still match the committed intent.
-- [`dependencies.md`](dependencies.md) — what the toolbox stands on: who
-  maintains each package, what the licenses add up to (including how the GPL
-  engine stays isolated), and what would break if one disappeared.
-  **Languages:** English · [繁體中文](dependencies.zh-TW.md).
 
 ## How-to
 
@@ -99,13 +51,3 @@ known to-do, not an oversight this paragraph is unaware of.
   export-time half of the geometry contract.
 - `invdx.export.contract` — fingerprints the exported polygons and reads back
   what a converter produced, so a handoff can be checked rather than trusted.
-
-## Honest record
-
-- [`journal.md`](journal.md) — append-only working log; every reported
-  number cites the run, commit, or report file it came from.
-  **Languages:** English · [繁體中文](journal.zh-TW.md).
-- [`RETRACTIONS.md`](RETRACTIONS.md) — conclusions this project published
-  and later found wrong, corrected in place with a pointer here rather than
-  silently edited away.
-  **Languages:** English · [繁體中文](RETRACTIONS.zh-TW.md).

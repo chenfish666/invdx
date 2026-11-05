@@ -37,8 +37,7 @@
 >
 > 還有幾個只出現在單一節的保留詞(virtual、external、root spec、extra、
 > build backend、editable、manifest、build string),在各自第一次出現的
-> 地方就地註解,不進這個方塊;全 repo 的用詞裁定收在
-> `docs/glossary.zh-TW.md`。
+> 地方就地註解,不進這個方塊。
 >
 > 另外:程式碼區塊裡的指令、旗標、路徑、設定鍵、版本號、錯誤訊息一律
 > 原樣不動,只有註解譯成中文。
@@ -288,7 +287,7 @@ CUDA 路徑,而它的 CUDA wheel 矩陣只涵蓋 Linux x86_64 和 aarch64。把�
 
 這條規則判不出來的案例——例如某個套件同時有 conda-forge 建置和 wheel,
 而 wheel 裡打包的 BLAS 和 L2 用的那套不同——要看哪一側必須和交叉驗證
-用的引擎對得起來才能決定,而那個推理逐套件記在 `docs/dependencies.md`。
+用的引擎對得起來才能決定,逐套件判斷。
 
 ### `uv.lock` 鎖住的是什麼
 
@@ -321,10 +320,8 @@ CUDA 路徑,而它的 CUDA wheel 矩陣只涵蓋 Linux x86_64 和 aarch64。把�
 會 import `equinox.internal`,而 `equinox` 在 `pyproject.toml` 裡完全沒有
 出現——它是因為 fdtdx 把它拉進來才在的。換句話說,整串東西是掛在一個
 **根本沒被宣告的套件的私有 API** 上,而把它按住的,是釘在*另一個*套件上
-的那根釘子。`docs/dependencies.md` 把這件事登記成「要修掉的宣告問題」,
-而不是「永遠
-記錄在案」;這裡重述一次,是因為它同時也是「fdtdx 那根釘子不能當例行公事
-處理」最鋒利的理由。
+的那根釘子。這是一個「要修掉的宣告問題」,而不是「永遠記錄在案」;它同時也是
+「fdtdx 那根釘子不能當例行公事處理」最鋒利的理由。
 
 ### 為什麼這份 lock 只針對單一平台
 
@@ -825,4 +822,3 @@ spack view 改指到 pixi 產生的 env prefix。這裡沒有 commit `pixi.lock`
 | `~/.spack/modules.yaml` | L2 | 使用者範圍設定,不進版控;module 產生行為 |
 | `env.sh.example` → `env.sh` | L3 | 機器專屬的值,永遠不進 git |
 | `pixi.toml` | L2 fallback | 備而未用;切換條件見上一節 |
-| `docs/dependencies.md` | — | 逐套件的取捨理由,以及那個待修的宣告問題 |

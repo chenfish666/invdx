@@ -256,8 +256,8 @@ channel stays in L1 even when it is enormous.*
 
 Cases this rule does not settle — a package with both a conda-forge build and
 a wheel, where the wheel bundles a different BLAS than L2 uses — are decided
-by which side needs to agree with the cross-validation engine, and that
-reasoning belongs in `docs/dependencies.md`, per package.
+by which side needs to agree with the cross-validation engine, decided per
+package.
 
 ### What `uv.lock` locks
 
@@ -294,9 +294,9 @@ One dependency is locked without being declared: `engines/fdtdx_checkpoint_buffe
 imports `equinox.internal`, and `equinox` appears nowhere in
 `pyproject.toml` — it arrives only because fdtdx pulls it in. So a private
 API of an undeclared package is load-bearing, held in place by a pin on a
-*different* package. `docs/dependencies.md` records this as a declaration
-problem to fix rather than document forever; it is repeated here because it
-is also the sharpest reason the fdtdx pin cannot be treated as routine.
+*different* package. That is a declaration problem to fix rather than
+document forever, and it is also the sharpest reason the fdtdx pin cannot be
+treated as routine.
 
 ### Why the lock is single-platform
 
@@ -841,4 +841,3 @@ each file with the layer it belongs to.
 | `~/.spack/modules.yaml` | L2 | user-scope config, not tracked; controls Lmod generation |
 | `env.sh.example` → `env.sh` | L3 | machine-specific values, never in git |
 | `pixi.toml` | L2 fallback | prepared but unused; switch conditions in the section above |
-| `docs/dependencies.md` | — | the per-package reasoning, and the declaration problem still to fix |
