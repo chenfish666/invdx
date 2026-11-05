@@ -140,7 +140,7 @@ adapter 交給每個物件的,都是**一個實數純量介電常數**
 | 引擎 | 它能在幾維裡量 |
 |---|---|
 | fdtdx(設計引擎,GPU) | quasi-2D 與完整 3D——**從來沒有真正的 2D**:fdtdx 是 3D 求解器,而這個 repo 造得出來最薄的模擬場域,y 軸上仍然有貨真價實的 `n_y_cells` 格(`GratingCouplerConfig.n_y_cells`:最少 2、**預設 4**、週期邊界、那一軸沒有設計自由度) |
-| Meep,透過 subprocess bridge | 只有 2D——bridge 對外開放的每一項量測工作(`slab_transmission`、`vacuum_flux`、`phc_bend`)建的都是 2D 模擬場域;唯一那個 3D 工作 `benchmark` 沒有偵測器,量的是場更新速率而不是物理 |
+| Meep,透過 subprocess bridge | 只有 2D——bridge 對外開放的每一項量測工作(`slab_transmission`、`vacuum_flux`、`phc_bend`、`grating_coupler`)建的都是 2D 模擬場域;唯一那個 3D 工作 `benchmark` 沒有偵測器,量的是場更新速率而不是物理 |
 | 自己寫的 `toy/` | 只有 2D TM(Ez, Hx, Hy) |
 
 所以:**3D 元件在這裡設計得出來、也量得出來,但在這裡對驗不了。** G5 拿 fdtdx
@@ -153,8 +153,8 @@ quasi-2D 的耦合頻譜峰形(ridge)對上 Meep 的真 2D。這個 repo 裡,3D 
 要精確地講清楚**為什麼**只到這裡,因為誠實的版本比聽起來的小:這是**接線的
 缺口,不是物理的缺口**。Meep 模擬 3D 模擬得好好的;這個 repo 缺的是
 subprocess bridge 裡的一項 3D 量測工作——`engines/meep_worker.py` 對外開放的是
-`slab_transmission`、`vacuum_flux`、`phc_bend`,全是 2D,外加一個沒有偵測器的
-`benchmark`。要補上 3D 對驗,意思是**再寫一項 worker 工作和對應的慣例對齊**,
+`slab_transmission`、`vacuum_flux`、`phc_bend`、`grating_coupler`,全是 2D,外加
+一個沒有偵測器的 `benchmark`。要補上 3D 對驗,意思是**再寫一項 worker 工作和對應的慣例對齊**,
 不是去取得哪一支引擎都沒有的能力。所以「3D 在這裡對驗不了」正確的讀法是
 **還沒有人把它接起來**;正在決定要不要採用這個工具箱的讀者,應該把它當成
 **一件工作**來估價,而不是當成物理上的不可能。
@@ -256,8 +256,8 @@ bridge 和 `toy/`——但兩者都在 CPU 側,上面那個模型對它們不適
 rank 數),上面那個模型對它們都不適用。那裡也正是這個 repo 裡**唯一真正的
 2D** 所在:一個大面積的 2D **正向**研究,在 GPU 上裝不下,在 CPU 上也許還
 負擔得起——用 CPU 的速度,而且僅限於 bridge 已經開放的那些量測。它的工作
-清單是**固定的**,而且只有三項(`slab_transmission`、`vacuum_flux`、
-`phc_bend`),沒有一項量得了任意的彎波導,所以這條路在花掉 CPU 時數之前,
+清單是**固定的**,而且只有四項(`slab_transmission`、`vacuum_flux`、
+`phc_bend`、`grating_coupler`),沒有一項量得了任意的彎波導,所以這條路在花掉 CPU 時數之前,
 會先花掉「在 `engines/meep_worker.py` 裡新寫一項 worker 工作」;而且它回傳的
 是數字,**不是梯度**。`toy/` 是另一個 CPU 選項,代價是它那個 Mur 邊界的
 精度下限。
@@ -595,7 +595,7 @@ problem 的 dict 展開蓋在自己量出的數字上的關卡,**身分鍵照樣
 | `00_check.py` | 關卡執行器(`--only`、`--through`) |
 | `01_smoke_fdtdx.py` | 走 config/cli/runio 的一次極小 fdtdx 正向模擬 |
 | `02_smoke_meep_bridge.py` | meep 環境的 subprocess 來回 |
-| `03_grating_coupler_baseline.py` | `grating_coupler` 的跨引擎驗收基線(θ=10 的頻譜峰形、θ=0 的抑制) |
+| `03_grating_coupler_baseline.py` | `grating_coupler` 的跨引擎驗收基線:θ=10 時 fdtdx 的 CE(λ) 頻譜峰形,對上腳本自己透過 bridge 重新產生的 Meep 參考值(`--meep-only`、`--meep-json`);以及 θ=0 的抑制 |
 | `04_grating_coupler_3d.py` | 單 GPU 的 3D `grating_coupler` 驗證 |
 | `05_grating_coupler_3d_dual.py` | 雙 GPU 工作級平行的 3D(空的/有光柵的分別放在兩張卡上) |
 | `06_phc_bend.py` | 光子晶體彎角基準,一階段一階段跑(`--stage eps\|gap\|bend\|meep\|compare\|defect`) |

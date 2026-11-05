@@ -26,238 +26,53 @@ which in the 2D physics of this problem is exact — no numerical mode solver
 enters the measurement chain.
 """
 
-from dataclasses import dataclass
-
 import jax
 import numpy as np
 
 import fdtdx
 
-from ..config import BaseConfig
 from ..engines.fdtdx_checkpoint_buffers import run_fdtd_buffers
 from .contract import GradcheckCase, ProblemSpec, ReciprocityCase
+
+from .grating_coupler_np import (  # noqa: F401  (re-exported, see below)
+    MEEP_MAX_RUN_TIME,
+    Block,
+    GratingCouplerConfig,
+    Line,
+    ce_sample,
+    chip_blocks,
+    compare_ridges,
+    fiber_beam_profile,
+    material_index,
+    meep_payload,
+    meep_spectrum,
+    overlap_power_directional,
+    phasor_line_power,
+    ports,
+    profile_teeth,
+    ridge,
+    signed_poynting_flux_x,
+    signed_poynting_flux_z,
+    slab_te0_mode,
+    slab_te0_neff,
+    uniform_grating_teeth,
+)
 
 UM = 1e-6
 
 
-@dataclass
-class GratingCouplerConfig(BaseConfig):
-    # ---- Wavelength (um) ----
-    lam_c: float = 1.31
-
-    # ---- Materials (constant index across the simulated band) ----
-    n_si: float = 3.503
-    n_sio2: float = 1.447
-
-    # ---- Layer stack (um), grating_coupler y-coordinates: Si layer occupies [0, t_si] ----
-    t_si: float = 0.220
-    t_box: float = 3.0
-    t_sub: float = 1.5
-
-    # ---- Lateral geometry (um) ----
-    L_design: float = 10.0
-    L_design_y: float = 10.0        # y extent of the 2D free-form design
-                                    # window (2D path only; the quasi-2D
-                                    # 1D path never reads it). Default = the
-                                    # full wg width; a narrower y-symmetric
-                                    # window cuts variables without changing
-                                    # what the method does.
-    pad_x: float = 4.0
-    air_above: float = 3.0
-    dpml: float = 1.0
-
-    # ---- Fiber / beam ----
-    w0: float = 4.6                 # Gaussian waist radius = half the
-                                    # mode-field diameter of a standard
-                                    # single-mode fiber
-    fiber_x0: float = 0.0
-    fiber_line_y: float = 1.2       # monitor line above chip (grating_coupler y coords)
-    src_beam_y: float = 2.2         # beam source plane (grating_coupler y coords)
-    theta_deg: float = 0.0
-
-    # ---- FOM (0.0 = legacy fiber-excited CE-only FOM) ----
-    w_s11: float = 0.0              # FOM = CE - w_s11 * R11, R11 = linear
-                                    # |S11|^2; MUST stay a float literal —
-                                    # cli._cast_like casts --set overrides to
-                                    # the default's type and int("0.3") raises
-
-    # ---- Waveguide monitor / source (grating_coupler x coords) ----
-    x_mon_wg: float = -6.5
-    x_src_wg: float = -7.5
-    wg_mon_height: float = 2.5
-    wg_src_waist: float = 0.20      # z-waist of the wg-side excitation beam;
-                                    # injection purity is irrelevant because
-                                    # P_in is the measured FORWARD mode
-                                    # overlap (radiation is filtered out),
-                                    # i.e. the a_fwd normalization used
-                                    # throughout this module
-
-    # ---- Optional second lithography layer (70 nm shallow etch, a typical
-    #      SOI process option; constraint-relaxation path) ----
-    t_shallow: float = 0.070        # shallow-etch depth (um): etched regions
-                                    # keep t_si - t_shallow of silicon
-
-    # ---- fdtdx numerics ----
-    spacing_um: float = 0.0125      # 12.5 nm cells = 80 cells per um
-    n_y_cells: int = 4              # thin periodic axis; must be >1 because
-                                    # the released GaussianPlaneSource squeezes
-                                    # the transverse amplitude to 2D
-    sim_time_s: float = 1.5e-12     # fixed run length (no adaptive stop in
-                                    # released fdtdx); keep IDENTICAL between
-                                    # a measurement run and its normalization
-                                    # run so phasor scalings cancel
-
-    # ---- Derived (coupler-coordinate -> scene-coordinate offsets, um) ----
-    @property
-    def X0(self):
-        return self.L_design / 2 + self.pad_x + self.dpml
-
-    @property
-    def Z0(self):
-        return self.t_box + self.t_sub + self.dpml
-
-    @property
-    def cell_x(self):
-        return 2 * self.X0
-
-    @property
-    def cell_z(self):
-        return self.Z0 + self.t_si + self.air_above + self.dpml
-
-
-# --------------------------------------------------------------------------
-# Analytic asymmetric-slab TE0 mode (exact in the 2D physics of this problem)
-# --------------------------------------------------------------------------
-
-
-def slab_te0_neff(lam_um, t_um, n_core, n_sub, n_cover):
-    """Effective index of the TE0 mode of an asymmetric slab via bisection on
-    the standard dispersion relation:
-        kappa*t = atan(gamma_s/kappa) + atan(gamma_c/kappa)   (m = 0)
-    with kappa = k0*sqrt(n_core^2-neff^2), gamma = k0*sqrt(neff^2-n_clad^2).
-    """
-    k0 = 2 * np.pi / lam_um
-
-    def resid(neff):
-        kap = k0 * np.sqrt(n_core ** 2 - neff ** 2)
-        gs = k0 * np.sqrt(max(neff ** 2 - n_sub ** 2, 1e-15))
-        gc = k0 * np.sqrt(max(neff ** 2 - n_cover ** 2, 1e-15))
-        return kap * t_um - np.arctan(gs / kap) - np.arctan(gc / kap)
-
-    lo, hi = max(n_sub, n_cover) + 1e-9, n_core - 1e-9
-    if resid(lo) * resid(hi) > 0:
-        raise ValueError("TE0 not guided for these parameters")
-    for _ in range(200):
-        mid = 0.5 * (lo + hi)
-        if resid(lo) * resid(mid) <= 0:
-            hi = mid
-        else:
-            lo = mid
-    return 0.5 * (lo + hi)
-
-
-def slab_te0_mode(zs_um, z_core_lo_um, cfg):
-    """(Ey, Hz_fwd, n_eff) of the slab TE0 mode sampled at heights zs_um.
-
-    Ey: cos inside the core, evanescent decay in SiO2 below / air above.
-    Hz for the +x traveling mode is n_eff*Ey in fdtdx's eta0-normalized
-    units; the -x traveler flips the sign of Hz.
-    """
-    lam, t = cfg.lam_c, cfg.t_si
-    neff = slab_te0_neff(lam, t, cfg.n_si, cfg.n_sio2, 1.0)
-    k0 = 2 * np.pi / lam
-    kap = k0 * np.sqrt(cfg.n_si ** 2 - neff ** 2)
-    gs = k0 * np.sqrt(neff ** 2 - cfg.n_sio2 ** 2)
-    gc = k0 * np.sqrt(neff ** 2 - 1.0)
-    # core field cos(kap*(z-z_lo) - phi_s) with tan(phi_s) = gamma_s/kappa
-    phi_s = np.arctan2(gs, kap)
-
-    z = np.asarray(zs_um) - z_core_lo_um
-    core = np.cos(kap * z - phi_s)
-    below = np.cos(-phi_s) * np.exp(gs * z)                     # z < 0
-    above = np.cos(kap * t - phi_s) * np.exp(-gc * (z - t))     # z > t
-    Ey = np.where(z < 0, below, np.where(z > t, above, core))
-    return Ey, neff * Ey, neff
-
-
-def overlap_power_directional(E, H, Em, Hm, dl):
-    """Power carried by the (Em, Hm) mode in measured fields (E, H).
-
-    a = 1/4 * sum(E*conj(Hm) + conj(Em)*H) dl ;  P = |a|^2 / Pm with
-    Pm = 1/2 * Re sum(Em*conj(Hm)) dl. Physical 1/2-convention throughout —
-    identical structure to invdx.modes.overlap_power but valid for modes
-    where Hm != Em (slab mode: Hm = n_eff*Em). Direction is selected by the
-    sign of Hm (backward mode: pass -Hm).
-    """
-    a = 0.25 * np.sum(E * np.conj(Hm) + np.conj(Em) * H) * dl
-    # |Pm|: a backward mode carries negative signed power along +x, but the
-    # coupled power magnitude is what CE needs
-    Pm = abs(0.5 * np.real(np.sum(Em * np.conj(Hm))) * dl)
-    return float(np.abs(a) ** 2 / Pm)
-
-
-def phasor_line_power(E, H, dl):
-    """|1/2 Re sum(E x H*)| through a line from phasor fields (per unit y)."""
-    return float(abs(0.5 * np.real(np.sum(E * np.conj(H))) * dl))
-
-
-def signed_poynting_flux_x(Ey, Hz, dl):
-    """SIGNED real Poynting flux in +x through a line, from phasor (Ey, Hz).
-
-    For this problem's polarization (E = Ey y-hat only; H = Hx x-hat +
-    Hz z-hat, no Hy in the thin-periodic-y quasi-2D scene):
-        S = 1/2 Re(E x H*) = (1/2 Re(Ey Hz*)) x-hat - (1/2 Re(Ey Hx*)) z-hat
-    so Sx = 1/2 Re(Ey * conj(Hz)).
-
-    energy_budget()'s judgment #2 in one line: `phasor_line_power` above
-    takes abs() of exactly this quantity, which is correct when the number
-    feeds a NORMALIZATION ratio (CE, mode power — direction is irrelevant,
-    only magnitude is) but wrong the moment the number has to go into an
-    energy-conservation SUM: a box's four face fluxes only cancel to zero
-    if inflow and outflow keep opposite signs. Do not route energy-budget
-    quantities through phasor_line_power's abs().
-    """
-    return float(0.5 * np.real(np.sum(Ey * np.conj(Hz))) * dl)
-
-
-def signed_poynting_flux_z(Ey, Hx, dl):
-    """SIGNED real Poynting flux in +z through a line, from phasor (Ey, Hx).
-
-    Sz = -1/2 Re(Ey * conj(Hx)) — see `signed_poynting_flux_x` for the
-    E x H* derivation (the minus sign is the y-hat x x-hat = -z-hat term).
-    """
-    return float(-0.5 * np.real(np.sum(Ey * np.conj(Hx))) * dl)
+# The config, the device as data (chip_blocks, ports, the teeth builders), the
+# analytic slab TE0 mode, the overlap and line-power primitives, ce_sample and
+# the ridge readout live in grating_coupler_np: numpy-pure, so the Meep worker
+# can import them inside the Meep environment, where this module cannot be
+# imported at all. Every public name there is re-exported above, so
+# `grating_coupler.X` still works -- tests/test_grating_coupler_np.py holds
+# that list complete.
 
 
 # --------------------------------------------------------------------------
 # Scene construction (fdtdx, quasi-2D)
 # --------------------------------------------------------------------------
-
-
-def uniform_grating_teeth(cfg, period, duty, n_periods=None):
-    """[(x_min_um, width_um)] of Si teeth in grating_coupler x-coordinates."""
-    x0 = -cfg.L_design / 2
-    if n_periods is None:
-        n_periods = int(cfg.L_design // period)
-    return [(x0 + i * period, duty * period) for i in range(n_periods)]
-
-
-def profile_teeth(cfg, rho_binary):
-    """Run-length encode a binary design profile into teeth (grating_coupler x-coords)."""
-    x0 = -cfg.L_design / 2
-    dx = 1.0 / cfg.design_grid_per_um
-    b = np.asarray(rho_binary) > 0.5
-    teeth, i = [], 0
-    while i < len(b):
-        if b[i]:
-            j = i
-            while j < len(b) and b[j]:
-                j += 1
-            teeth.append((x0 + i * dx, (j - i) * dx))
-            i = j
-        else:
-            i += 1
-    return teeth
 
 
 def _pml_cells(cfg):
@@ -423,19 +238,12 @@ def build_scene(cfg, teeth=None, with_chip=True, azimuth_sign=1.0,
         object_list.append(obj)
 
     if with_chip:
-        # substrate Si extends through the bottom PML
-        block("substrate", si, -cfg.X0, cfg.cell_x,
-              -(cfg.t_box + cfg.t_sub + cfg.dpml), cfg.t_sub + cfg.dpml)
-        block("box", sio2, -cfg.X0, cfg.cell_x, -cfg.t_box, cfg.t_box)
-        # output waveguide slab: right edge at the design window start,
-        # crossing the left PML
-        block("wg_slab", si, -cfg.X0, cfg.X0 - cfg.L_design / 2,
-              0.0, cfg.t_si)
-        for k, (x_min, w) in enumerate(teeth or []):
-            block(f"tooth{k}", si, x_min, w, 0.0, cfg.t_si)
-        for k, (x_min, w) in enumerate(shallow_teeth or []):
-            block(f"shallow{k}", si, x_min, w, 0.0,
-                  cfg.t_si - cfg.t_shallow)
+        # the device as data (grating_coupler_np.chip_blocks): the Meep
+        # reference builds its cell from the same list
+        material = {"si": si, "sio2": sio2}
+        for b in chip_blocks(cfg, teeth, shallow_teeth):
+            block(b.name, material[b.material], b.x_min, b.x_size,
+                  b.y_min, b.y_size)
 
     # ---- Source ----
     # invdx's GaussianBeamSource, not fdtdx.GaussianPlaneSource: the released
@@ -1490,21 +1298,15 @@ def characterize_spectrum(cfg, teeth, lams_um, azimuth_sign=None, seed=0,
     for k, lam in enumerate(lams_um):
         Ey_e = _phasor(arrays_e, "fiber_mon", 0, y_axis=1, lam_idx=k)
         Hx_e = _phasor(arrays_e, "fiber_mon", 1, y_axis=1, lam_idx=k)
-        p_in = phasor_line_power(Ey_e, Hx_e, cfg.spacing_um)
 
         Ey = _phasor(arrays_g, "wg_mon", 0, y_axis=0, lam_idx=k)
         Hz = _phasor(arrays_g, "wg_mon", 1, y_axis=0, lam_idx=k)
         n = Ey.shape[0]
         zs = z_mon_lo + (np.arange(n) + 0.5) * cfg.spacing_um
-        lam_cfg = type(cfg)(**{})  # only lam-dependent mode params matter
-        lam_cfg.lam_c, lam_cfg.t_si = lam, cfg.t_si
-        lam_cfg.n_si, lam_cfg.n_sio2 = cfg.n_si, cfg.n_sio2
-        Em, Hm_fwd, neff = slab_te0_mode(zs, 0.0, lam_cfg)
-        p_mode = overlap_power_directional(Ey, Hz, Em, -Hm_fwd, cfg.spacing_um)
-        ce = p_mode / p_in
-        out.append({"lam_um": float(lam), "CE": float(ce),
-                    "CE_dB": float(10 * np.log10(abs(ce) + 1e-15)),
-                    "P_in": p_in, "n_eff": float(neff)})
+        # the same function the Meep reference normalizes with
+        out.append(ce_sample(lam, Ey_e, Hx_e, Ey, Hz, zs, cfg.spacing_um,
+                             t_si=cfg.t_si, n_si=cfg.n_si,
+                             n_sio2=cfg.n_sio2))
     return {"spectrum": out, "azimuth_sign": azimuth_sign}
 
 

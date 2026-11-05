@@ -214,7 +214,7 @@ device anyone designs.
 | copy from | when | why |
 |---|---|---|
 | [`src/invdx/problems/phc_bend.py`](../src/invdx/problems/phc_bend.py) | your problem runs on the toy 2D engine and/or Meep, on CPU | numpy-pure — it imports no jax and no fdtdx, which is exactly what lets `engines/meep_worker.py` import it *inside* the Meep environment so both engines consume one geometry definition. Config + geometry + a handful of ratio measurements, nothing else. |
-| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) | your problem needs the fdtdx GPU engine and/or adjoint gradients | by far the longest module in the repo, and most of that length is one device's measurement chain: do not copy the file. Copy sections. |
+| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) | your problem needs the fdtdx GPU engine and/or adjoint gradients | by far the longest module in the repo, and most of that length is one device's measurement chain: do not copy the file. Copy sections. If your problem also needs a Meep cross-check, copy its split too: the config, the geometry and the CE normalization live in `problems/grating_coupler_np.py`, numpy-pure so the Meep worker can import them, and `grating_coupler` re-exports them. |
 
 `phc_bend` is the better model for the *shape* of a problem module. `grating_coupler` is
 the reference for the shape of an fdtdx measurement chain; these are the

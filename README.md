@@ -129,7 +129,7 @@ different questions.** The engines are not interchangeable here:
 | engine | dimensions it measures in |
 |---|---|
 | fdtdx (design engine, GPU) | quasi-2D and full 3D — **never true 2D**: fdtdx is a 3D solver, and the thinnest scene this repo builds still has a real y axis of `n_y_cells` cells (`GratingCouplerConfig.n_y_cells`: minimum 2, **default 4**, periodic boundaries, no design freedom on that axis) |
-| Meep, through the subprocess bridge | 2D only — every measurement task the bridge exposes (`slab_transmission`, `vacuum_flux`, `phc_bend`) builds a 2D cell; the one 3D task, `benchmark`, has no detectors and measures field-update rate rather than physics |
+| Meep, through the subprocess bridge | 2D only — every measurement task the bridge exposes (`slab_transmission`, `vacuum_flux`, `phc_bend`, `grating_coupler`) builds a 2D cell; the one 3D task, `benchmark`, has no detectors and measures field-update rate rather than physics |
 | self-written `toy/` | 2D TM only (Ez, Hx, Hy) |
 
 So **a 3D device can be designed and measured here, and cannot be
@@ -146,7 +146,8 @@ Be precise about *why* it stops there, because the honest version is smaller
 than it sounds: this is a **wiring gap, not a physics one**. Meep simulates 3D
 perfectly well; what this repo lacks is a 3D measurement task in the
 subprocess bridge — `engines/meep_worker.py` exposes `slab_transmission`,
-`vacuum_flux` and `phc_bend`, all 2D, plus a detector-less `benchmark`.
+`vacuum_flux`, `phc_bend` and `grating_coupler`, all 2D, plus a
+detector-less `benchmark`.
 Adding a 3D cross-check means writing one more worker task and the matching
 convention alignment, not acquiring capability neither engine has. So the
 correct reading of "3D cannot be cross-checked here" is *nobody has connected
@@ -268,8 +269,8 @@ Meep) instead, and the model above does not apply to either. That is also
 where the only true 2D in this repo lives: a large-area 2D *forward* study
 that will not fit on the GPU may still be affordable on the CPU — at CPU
 speed, and only for a measurement the bridge already exposes. Its task list is
-fixed and holds three (`slab_transmission`, `vacuum_flux`, `phc_bend`), none of
-which measures an arbitrary bend, so this route costs a new worker task in
+fixed and holds four (`slab_transmission`, `vacuum_flux`, `phc_bend`,
+`grating_coupler`), none of which measures an arbitrary bend, so this route costs a new worker task in
 `engines/meep_worker.py` before it costs CPU hours — and it returns numbers,
 not gradients. `toy/` is the other CPU option, at its Mur-boundary accuracy
 floor.
@@ -655,7 +656,7 @@ not the evidence.
 | `00_check.py` | gate runner (`--only`, `--through`) |
 | `01_smoke_fdtdx.py` | tiny forward fdtdx sim through config/cli/runio |
 | `02_smoke_meep_bridge.py` | meep-env subprocess round-trip |
-| `03_grating_coupler_baseline.py` | `grating_coupler` cross-engine acceptance baselines (θ=10 ridge, θ=0 suppression) |
+| `03_grating_coupler_baseline.py` | `grating_coupler` cross-engine acceptance baselines: the θ=10 CE(λ) ridge on fdtdx against a Meep reference the script regenerates through the bridge (`--meep-only`, `--meep-json`), and the θ=0 suppression |
 | `04_grating_coupler_3d.py` | single-GPU 3D `grating_coupler` validation |
 | `05_grating_coupler_3d_dual.py` | dual-GPU task-parallel 3D (empty/grating on separate cards) |
 | `06_phc_bend.py` | PhC bend benchmark, stage by stage (`--stage eps\|gap\|bend\|meep\|compare\|defect`) |

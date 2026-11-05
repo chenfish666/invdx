@@ -232,7 +232,7 @@ except ValueError as e:
 | 從哪抄 | 什麼時候 | 為什麼 |
 |---|---|---|
 | [`src/invdx/problems/phc_bend.py`](../src/invdx/problems/phc_bend.py) | 你的 problem 跑在 toy 二維引擎和/或 Meep 上,用 CPU | 純 numpy——它不 import jax 也不 import fdtdx,正是這一點讓 `engines/meep_worker.py` 可以在 Meep 環境**裡面**把它 import 進去,於是兩個引擎吃的是同一份幾何定義。config ＋ 幾何 ＋ 幾個相除的量測,沒有別的東西。 |
-| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) | 你的 problem 需要 fdtdx 的 GPU 引擎和/或 adjoint 梯度 | 整個 repo 裡最長的模組,而那個長度大半是**一個**元件的量測鏈:不要抄整份檔案,抄段落。 |
+| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) | 你的 problem 需要 fdtdx 的 GPU 引擎和/或 adjoint 梯度 | 整個 repo 裡最長的模組,而那個長度大半是**一個**元件的量測鏈:不要抄整份檔案,抄段落。如果你的 problem 也要拿 Meep 對驗,連它的拆法一起抄:config、幾何與 CE 的正規化放在 `problems/grating_coupler_np.py`,純 numpy,所以 Meep worker 進得去;`grating_coupler` 再把它們重新匯出。 |
 
 要學一個 problem 模組的**形狀**,`phc_bend` 是比較好的範本;`grating_coupler`
 則是「一條 fdtdx 量測鏈長什麼樣」的參考。動手寫之前值得先讀的是這幾段:
