@@ -37,8 +37,6 @@ one feature among these, not the whole toolbox.
 | largest forward run on one 24 GB card | 15.6M cells with stock fdtdx (out of memory at 27M); 64M cells with the fast path and memory reclaim |
 | adjoint memory | peak ≈ (372.18 + 268.0329·C) bytes per cell, C = gradient checkpoints; the slope is the same on Turing and Ada |
 
-Each number is recorded, with the run or file it came from, in
-[docs/journal.md](docs/journal.md) and [docs/RETRACTIONS.md](docs/RETRACTIONS.md).
 Everything here is simulation; nothing has been compared against a fabricated
 device.
 
@@ -151,10 +149,6 @@ report itself.
 - [docs/new-problem.md](docs/new-problem.md): adding a problem of your own.
 - [docs/env.md](docs/env.md): the uv and spack environments, and how to
   rebuild them from a clean clone.
-- [docs/journal.md](docs/journal.md) and
-  [docs/RETRACTIONS.md](docs/RETRACTIONS.md): an append-only log of what was
-  measured and where each number came from, and the conclusions later found
-  wrong, kept rather than quietly edited away.
 - [tutorials/01-jax-port/](tutorials/01-jax-port/): porting the toy engine to
   JAX, as a lesson.
 
@@ -165,8 +159,7 @@ attribution. Meep is GPL-2.0-or-later and is never linked, vendored or
 imported into the invdx process: it runs as a separate program behind the
 subprocess bridge. The Python dependency tree has three copyleft packages,
 all used unmodified: `tidy3d` (LGPL-2.1-or-later, pulled in by fdtdx and
-running in the same process) and `certifi` and `tqdm` (MPL-2.0). Full
-inventory: [docs/dependencies.md](docs/dependencies.md).
+running in the same process) and `certifi` and `tqdm` (MPL-2.0).
 
 ## Citing
 
