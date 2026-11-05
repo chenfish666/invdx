@@ -59,6 +59,14 @@ def assert_resolution_covers_design_grid(cfg):
 # mpa.OptimizationProblem / stop_when_dft_decayed default to decay_by=1e-11,
 # ~3.4x slower than 1e-6 with FOM unchanged to 4 decimals (measured).
 # meep_worker must always pass cfg.dft_decay_tol explicitly.
+# What the tolerance bounds is ONE norm over every DFT frequency and point,
+# so it does not bound each frequency: slow light near a stopband edge keeps
+# changing while the total has settled. Measured on the grating_coupler
+# reference (scripts/03, res 80): at 1e-6 the same run stopped at t = 439 with
+# 101 frequencies and t = 944 with 21 of them, the ridge peak moved 0.05 dB
+# and the stopband notch 10 dB; 1e-8 and 1e-10 put the peak within 0.002 dB of
+# each other. So check a resonant spectrum against a tighter tolerance before
+# trusting it, and fix the frequency list before comparing two runs.
 MEEP_DECAY_BY_DEFAULT_TOO_SLOW = 1e-11
 
 

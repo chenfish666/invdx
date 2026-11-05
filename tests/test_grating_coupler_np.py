@@ -592,8 +592,9 @@ def test_script_fails_on_a_peak_gap_and_exits_1(monkeypatch, tmp_path):
 
 def test_meep_json_is_refused_for_another_device(monkeypatch, tmp_path):
     mod = _load_script()
-    cfg = _cfg()
-    lams = mod.parse_lams("1.26,1.36,21")
+    # the payload the script sends with its own defaults
+    cfg = _cfg(dft_decay_tol=mod.MEEP_DECAY_TOL)
+    lams = mod.parse_lams(mod.DEFAULT_LAMS)
     stored = _fake_meep()(cfg, gc.uniform_grating_teeth(cfg, **TEETH_KW),
                           lams)
     ref = tmp_path / "ref" / "meep.json"

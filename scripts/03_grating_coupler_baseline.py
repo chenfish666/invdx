@@ -48,6 +48,15 @@ from invdx.problems import grating_coupler_np as gc
 # (effective_geometry below), which no single tolerance can absorb honestly.
 PEAK_TOL_DB = 2.0
 
+# Defaults for the two spectra, both measured on this device (journal,
+# 2026-11-05): the ridge sits against a stopband edge and carries ~5 nm
+# ripple, so 1 nm sampling (5 nm sampling read the peak 0.17 dB low), and
+# Meep's decay tolerance at 1e-8 (1e-6 left the peak 0.05 dB short of 1e-8,
+# which 1e-10 matches to 0.002 dB; conventions lesson 4). The tolerance is
+# only the config's default here, so --set dft_decay_tol=... still wins.
+DEFAULT_LAMS = "1.26,1.36,101"
+MEEP_DECAY_TOL = 1e-8
+
 # What this script used to compare against: one number from a Meep run made
 # outside the repository, with no script, settings or spectrum recorded.
 # Kept so a reader can see what the old acceptance meant and whether the
@@ -135,7 +144,7 @@ def main():
     p = base_parser(__doc__)
     p.add_argument("--period", type=float, default=0.575)
     p.add_argument("--duty", type=float, default=0.5)
-    p.add_argument("--lams", default="1.26,1.36,21", metavar="LO,HI,N",
+    p.add_argument("--lams", default=DEFAULT_LAMS, metavar="LO,HI,N",
                    help="wavelength list (um) both engines are sampled on")
     p.add_argument("--meep-ranks", type=int, default=2,
                    help="MPI ranks for the Meep reference")
@@ -151,7 +160,8 @@ def main():
     args = p.parse_args()
     if args.meep_only and args.meep_json:
         p.error("--meep-only with --meep-json would neither run nor compare")
-    cfg = apply_overrides(gc.GratingCouplerConfig(), args)
+    cfg = apply_overrides(
+        gc.GratingCouplerConfig(dft_decay_tol=MEEP_DECAY_TOL), args)
     d = start_run(cfg, args, "coupler-baseline")
 
     teeth = gc.uniform_grating_teeth(cfg, period=args.period, duty=args.duty)

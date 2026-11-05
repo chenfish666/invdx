@@ -498,9 +498,11 @@ def compare_ridges(reference, candidate, peak_tol_db):
 # Meep's time unit is length/c, here um/c (3.34 fs). The reference run stops
 # when its DFT fields have decayed to cfg.dft_decay_tol (lesson 4: always
 # passed explicitly); this cap only turns a run that never decays into an
-# error instead of a hang. For scale, fdtdx's fixed run, sim_time_s = 1.5 ps,
-# is ~450 um/c.
-MEEP_MAX_RUN_TIME = 5000.0
+# error instead of a hang. For scale: fdtdx's fixed run, sim_time_s = 1.5 ps,
+# is ~450 um/c, and the default uniform grating's grating run, at res 80 with
+# 101 wavelengths, decayed by t = 439 / 1116 / 4064 um/c at tolerance
+# 1e-6 / 1e-8 / 1e-10.
+MEEP_MAX_RUN_TIME = 20000.0
 
 
 def meep_payload(cfg, teeth, lams_um):
