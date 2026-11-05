@@ -26,7 +26,7 @@
 | driver | 這裡指「把設定、problem 模組和存檔串起來跑的那支腳本」,**不是**裝置驅動程式(device driver) |
 | 模擬場域(scene) | FDTD 模擬的整個計算區域;`build_scene` 就是在組它 |
 | voxel | 網格的一格。英文側寫 `cell` 的地方請一律讀成 voxel(**cell 即 voxel**),只有 `empty cell`、`outside the cell` 這種寫法指的是整個模擬場域 |
-| rasterize | 把設計畫到設計像素網格上。**保留英文不譯**——這批文件通篇在講 grating(光柵),照字面譯出來的中文名一定和它撞在一起 |
+| rasterize | 把設計畫到設計像素網格上。**保留英文不譯**——照字面譯出來的中文名會用到「光柵」兩個字,而那兩個字在光學裡已經是一種實體結構的名字 |
 | FOM(figure of merit) | 優化要最大化的目標量;本專案的慣例是 `loss = -FOM` |
 | adjoint(伴隨法) | 一次正向加一次反向,就拿到全部設計參數的梯度。和線性代數的「伴隨矩陣」無關 |
 | gradcheck | 拿有限差分(finite difference, FD)去核對 adjoint 梯度算得對不對的那道檢查 |
@@ -74,7 +74,7 @@ problem:底下沒有任何一步需要你去打聽一個不是你寫的 problem 
 - 你硬要宣告 `name=`,而它和你載入時用的名字不一致 → `load` 直接丟例外,不會
   安靜地幫你改對。
 - 帶點號路徑的最後一段撞到一個**已註冊**的 problem 名字(例如
-  `yourpkg.problems.grating_coupler`)→ 在 import 之前就被擋掉,不管那個模組
+  `yourpkg.problems.<registered_name>`)→ 在 import 之前就被擋掉,不管那個模組
   自己宣告了什麼、或什麼都沒宣告。
 
 兩條擋的是同一件事:名字是 gate 報告歸檔用的鍵(`<your_problem>_f0`、
@@ -97,7 +97,7 @@ problem:底下沒有任何一步需要你去打聽一個不是你寫的 problem 
 | 這一類鍵 | 例子 | 誰寫的 | 你放進 `extra` / `info` 會怎樣 |
 |---|---|---|---|
 | 身分 | `problem`、`problem_module` | gate 從 `load` 的結果蓋上 | 被拒絕,訊息點名撞到的那個鍵 |
-| gate 自己量的數字 | `CE_fwd_dB`、`grad_max`、… | 該道 gate | 同上 |
+| gate 自己量的數字 | `grad_max`、… | 該道 gate | 同上 |
 | runner 寫的 | `seconds`、`reason`、`exception` | runner | 同上 |
 
 **把你自己的數字放在你自己的名字底下。** 這條規則的理由是:安靜的合併會把你的
@@ -155,7 +155,7 @@ except ValueError as e:
 把 G3 的宣告**連註解區塊一起**抄進一道新的 gate,而那道新 gate 是真的在量一個
 元件;於是它照樣報出數字、沒有蓋上任何身分、印了 `[ok]`。**三個字元在四個模組
 裡都是對的,就不可能在第五個模組裡看起來是錯的**;但一段「講一個空 cell」的
-句子可以,而且審查的人會看到它就躺在一堆耦合效率旁邊。這條規則買到的就只有
+句子可以,而且審查的人會看到它就躺在那道 gate 報出來的數字旁邊。這條規則買到的就只有
 這個:**抄襲變得看得見,不是變得不可能**——和下一節〈這買到了什麼,又沒買到
 什麼〉講的是同一條界線。它唯一真的強制到的事情是:`False` 現在 parse 不過去了,
 所以沒有人會不小心把舊寫法帶著走。
@@ -201,9 +201,9 @@ except ValueError as e:
 - 出處欄位是讓一份報告**變得可查**的東西:它給讀者一條模組路徑,叫他自己去讀。
   **它是通往證據的路標,不是證據本身。**
 
-其他的都是慣例,不是契約,而且誠實的理由值得寫出來:兩個內建 problem 的模組層級
-函式名字,交集是**空的**。`grating_coupler` 和 `phc_bend` 沒有共用任何一個可呼叫
-的東西。所以下面這張表描述的是你最後會寫出來的**形狀**,不是任何東西會去 import
+其他的都是慣例,不是契約,而且誠實的理由值得寫出來:到目前為止寫出來的那些
+problem,模組層級函式名字的交集是**空的**——它們沒有共用任何一個可呼叫的東西。
+所以下面這張表描述的是你最後會寫出來的**形狀**,不是任何東西會去 import
 的名字。
 
 | 你提供什麼 | 誰會用它 | 一定要嗎? |
@@ -227,27 +227,16 @@ except ValueError as e:
 
 ---
 
-## 第 0 步:決定要抄哪一份
+## 第 0 步:決定這個 problem 跑在哪一支引擎上
 
-| 從哪抄 | 什麼時候 | 為什麼 |
+| 引擎 | 什麼時候 | 對模組的意思 |
 |---|---|---|
-| [`src/invdx/problems/phc_bend.py`](../src/invdx/problems/phc_bend.py) | 你的 problem 跑在 toy 二維引擎和/或 Meep 上,用 CPU | 純 numpy——它不 import jax 也不 import fdtdx,正是這一點讓 `engines/meep_worker.py` 可以在 Meep 環境**裡面**把它 import 進去,於是兩個引擎吃的是同一份幾何定義。config ＋ 幾何 ＋ 幾個相除的量測,沒有別的東西。 |
-| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) | 你的 problem 需要 fdtdx 的 GPU 引擎和/或 adjoint 梯度 | 整個 repo 裡最長的模組,而那個長度大半是**一個**元件的量測鏈:不要抄整份檔案,抄段落。如果你的 problem 也要拿 Meep 對驗,連它的拆法一起抄:config、幾何與 CE 的正規化放在 `problems/grating_coupler_np.py`,純 numpy,所以 Meep worker 進得去;`grating_coupler` 再把它們重新匯出。 |
+| toy 二維引擎(`src/invdx/toy/`),CPU | 二維 TM 的題目、便宜的錨、拿來學 | 讓模組維持純 numpy——不 import jax、也不 import fdtdx——`engines/meep_worker.py` 就能在 Meep 環境**裡面**把它 import 進去,於是兩支引擎吃的是同一份幾何定義 |
+| fdtdx,GPU | quasi-2D 或 3D、需要 adjoint 梯度 | 模組會 import jax 和 fdtdx;`engines/fdtdx_engine.py` 裡的模擬場域(scene)工廠示範了一串 fdtdx 物件和它們的擺放約束怎麼組起來。如果這個 problem 也要拿 Meep 交叉核對,就給它一個純 numpy 的另一半讓 worker import,就像 `grating_coupler` 的 `problems/grating_coupler_np.py` |
+| Meep,經由 bridge | 一個獨立的二維交叉核對 | 在 `engines/meep_worker.py` 裡多加一項工作(見本頁最後那張對照表) |
 
-要學一個 problem 模組的**形狀**,`phc_bend` 是比較好的範本;`grating_coupler`
-則是「一條 fdtdx 量測鏈長什麼樣」的參考。動手寫之前值得先讀的是這幾段:
-
-| `grating_coupler.py` 的段落 | 它示範什麼 |
-|---|---|
-| `build_scene` | 怎麼把一串 fdtdx 物件加上擺放約束組起來 |
-| `_run`、`_phasor` | 怎麼跑一個模擬場域,並把 `PhasorDetector` 的一條線讀回來 |
-| `characterize`、`beam_power_and_tilt` | 一個量測,以及它配套的歸一化 run |
-| `_box_bounds`、`check_energy_closure` | 怎麼寫一道**寧可拒絕、也不回傳一個看起來合理的數字**的護欄 |
-| `design_device`、`build_scene_design` | 可微分的 `fdtdx.Device` 那條路 |
-| `te0_target_on_monitor`、`ce_from_arrays`、`make_ce_value_and_grad` | 一個被 trace 的 FOM,以及它的 value-and-grad factory |
-
-這一頁接下來會照 `phc_bend` 的風格從零建一個新的 problem,並且在每一步指出
-`grating_coupler` 對應的地方在哪。
+這一頁接下來會在 toy 引擎上從零建一個新的 problem——一塊介電平板,拿一個閉式解
+來核對——並在 fdtdx 做法不同的地方另外註明。
 
 ---
 
@@ -294,15 +283,13 @@ class SlabConfig(BaseConfig):
    的繼承會直接拒絕任何沒有預設值的欄位。
 2. **浮點數的預設值要寫成浮點字面值。** `cli._cast_like` 會把 `--set` 傳進來的
    值轉成**當下那個預設值**的型別,所以一個宣告成 `0` 的欄位永遠是 int,而
-   `--set w=0.3` 會死在 `int("0.3")` 裡。`GratingCouplerConfig.w_s11` 就是為了
-   這個理由把警告寫在欄位旁邊。
+   `--set w=0.3` 會死在 `int("0.3")` 裡。
 3. **推導出來的值一律用 `@property`,絕不寫成欄位。** property 不會出現在
    `dataclasses.asdict` 裡,所以 `config.json` 保持是「重建一次 run 所需的最小
-   輸入集合」。`PhCBendConfig.freqs` 和 `GratingCouplerConfig.X0` / `cell_x` /
-   `cell_z` 就是這個寫法。
+   輸入集合」。上面的 `SlabConfig.freqs` 就是這個寫法。
 4. **你根本不用的 `BaseConfig` 欄位還是會出現**在 `config.json` 和「合法鍵」的
-   錯誤訊息裡。那是可以接受的雜訊,不是要修的 bug:`PhCBendConfig` 繼承了
-   `min_feature`、`eta_e` 和 `beta_schedule`,一個都沒讀。
+   錯誤訊息裡。那是可以接受的雜訊,不是要修的 bug:一個跑在 toy 引擎上的
+   problem 會繼承 `min_feature`、`eta_e` 和 `beta_schedule`,一個都不讀。
 
 **確認它成了。** 一個能來回轉換、而且會拒絕胡說八道的 config:
 
@@ -325,8 +312,8 @@ unknown config key: nonsense
 
 如果打錯的鍵是被安靜忽略掉的,那就表示你沒有走 `cli.apply_overrides`。
 
-> **這是給呼叫端傳的值,不是給使用者調的。** `grating_coupler` 會在組模擬場域
-> 之前設 `cfg._lams_um`,再用 `finally` 還原。不是 dataclass 欄位的屬性,對
+> **這是給呼叫端傳的值,不是給使用者調的。** 一個 problem 可以在組模擬場域
+> 之前設一個私有屬性(例如 `cfg._lams_um`),再用 `finally` 還原。不是 dataclass 欄位的屬性,對
 > `config.json` 和 `--set` 都是隱形的——給呼叫端在程式裡設是對的,拿來放任何
 > 使用者應該調得到的東西就是錯的。
 
@@ -334,9 +321,8 @@ unknown config key: nonsense
 
 ## 第 2 步:先做幾何,而且在模擬之前先看一眼
 
-**在你親眼看過程式實際建出來的介電常數分布之前,不要開始模擬。** 兩個內建的
-problem 都把這件事做成正式的一個 stage:`python scripts/06_phc_bend.py --stage eps`
-會把三種佈局都印成 ASCII 圖,並把陣列存起來。
+**在你親眼看過程式實際建出來的介電常數分布之前,不要開始模擬。** 把它做成
+獨立的一個 stage;第 8 步那支 driver 的 `--stage eps` 就是做這件事的。
 
 對一個 numpy/toy 的 problem 來說,幾何就只是一個陣列:
 
@@ -377,24 +363,16 @@ print('slab thickness in cells:', int((eps.max(axis=1) > 1).sum()))
 ```bash
 uv run python -c "
 import jax, numpy as np, fdtdx
-from invdx.problems import grating_coupler
-cfg = grating_coupler.GratingCouplerConfig(spacing_um=0.040)
-sim_config, objs, cons = grating_coupler.build_scene(
-    cfg, teeth=grating_coupler.uniform_grating_teeth(cfg, 0.6, 0.5))
+from invdx.problems import <your_problem> as prob
+cfg = prob.<YourName>Config()
+sim_config, objs, cons = prob.build_scene(cfg)
 objects, arrays, params, sim_config, _ = fdtdx.place_objects(
     object_list=objs, config=sim_config, constraints=cons,
     key=jax.random.PRNGKey(0))
 eps = 1.0 / np.asarray(arrays.inv_permittivities)[0]
 print('eps grid:', eps.shape, 'unique:', np.unique(np.round(eps, 3)))
 print('time steps:', sim_config.time_steps_total)
-print('wg_mon phasor shape:', arrays.detector_states['wg_mon']['phasor'].shape)
 "
-```
-
-```
-eps grid: (500, 4, 243) unique: [ 1.     2.094 12.271]
-time steps: 19669
-wg_mon phasor shape: (1, 1, 2, 1, 4, 62)
 ```
 
 這只花幾秒鐘,而且是在你付出一次 run 的代價**之前**就抓到:一個被擺到模擬場域
@@ -406,10 +384,9 @@ wg_mon phasor shape: (1, 1, 2, 1, 4, 62)
 - **toy 引擎:** 最外圈的 `eps` 必須是 `1.0`。一階 Mur 邊界假設那裡是真空波速。
   材料碰到邊界**不會**丟例外——它會反射,而那個反射就決定了你的 noise floor
   (雜訊底線)。
-- **邊界那一圈是量測的一部分。** `phc_bend` 特地把多一圈晶格位置帶**進**邊框裡;
-  少了它,光會從晶體周圍的真空繞過去,量到的能隙內壓抑就變成「被繞道限制」而不是
-  「被晶體限制」(這個效應值好幾十 dB——見 `rod_sites` 的 docstring,以及
-  [`phc-bend-walkthrough.zh-TW.md`](phc-bend-walkthrough.zh-TW.md) 的第 1 步)。
+- **結構周圍那一圈是量測的一部分。** 如果光可以從結構旁邊的真空繞過去,量到的
+  壓抑就是被那條繞道決定的,而不是被結構本身——這個效應值好幾十 dB。把結構
+  延伸進邊框裡,或者把那條繞道單獨量出來。
 
 ---
 
@@ -418,15 +395,13 @@ wg_mon phasor shape: (1, 1, 2, 1, 4, 62)
 這個 repo 裡每一個物理數字都是**兩次 run 相除**,而那兩次 run 只差在被測的那
 一件事上:
 
-- `phc_bend`:彎的輸出 / 直波導的輸出;晶體板 / 空的模擬場域(scene;英文原文寫 `empty cell`,
-  依裁定這裡的 cell 指整個 scene,不是網格的一格)
-- `grating_coupler`:波導監測面上的模態功率 / 空模擬場域 run 量到的入射光束功率
+- 透射率:有結構時的輸出功率 / 空的模擬場域(scene;英文原文寫 `empty cell`,
+  依裁定這裡的 cell 指整個 scene,不是網格的一格)的輸出功率
+- 耦合進某個模態的效率:監測面上的模態功率 / 沒有元件那次 run 的入射功率
 
-**「只差在那一件事」是照字面的意思。** `grating_coupler` 的模組 docstring 寫明
-了讓它的比值成立的條件:所有的組成塊都是從**同一個波長、同一個 run 時長**的
-偵測器場算出來的,所以 phasor 的縮放因子會**恰好**抵消。
-`GratingCouplerConfig.sim_time_s` 在欄位旁邊又講了一次:量測 run 和它的歸一化
-run 之間,這個值必須**一模一樣**。只改其中一邊,你會得到一個錯的答案,而且沒有
+**「只差在那一件事」是照字面的意思。** 比值裡的每一項都要從**同一個波長、同一個
+run 時長**的偵測器場算出來,phasor 的縮放因子才會**恰好**抵消;量測 run 和它的
+歸一化 run 之間,`sim_time_s` 必須**一模一樣**。只改其中一邊,你會得到一個錯的答案,而且沒有
 任何錯誤訊息。
 
 歸一化 run 的檢查清單——同樣的網格間距與形狀、同樣的光源、同樣的步數 /
@@ -434,7 +409,7 @@ run 之間,這個值必須**一模一樣**。只改其中一邊,你會得到一�
 
 量測函式本身應該回傳**單純可 JSON 化的 dict**(list、float、字串——不要 numpy
 純量,不要陣列)。這正是 `runio.save_json` 能把它們直接寫進 run 目錄的原因,
-也是 `toy_bend_transmission` 結尾都是 `.tolist()` 呼叫的原因。
+也是下面那個範例的 `toy_transmission` 結尾都是 `.tolist()` 呼叫的原因。
 
 ---
 
@@ -445,9 +420,9 @@ run 之間,這個值必須**一模一樣**。只改其中一邊,你會得到一�
 
 | 錨 | 成本 | 這個 repo 裡的例子 |
 |---|---|---|
-| 閉式解析解 | 幾秒 | `gates/g5_crossengine.analytic_transmission`(Airy 平板);`grating_coupler.slab_te0_neff`(非對稱平板的色散關係) |
-| 一個文獻值 | 幾分鐘 | `phc_bend` 的參考能隙 `f = 0.29..0.41`,`scripts/06_phc_bend.py` 裡的 `GAP_REF` |
-| 第二個引擎 | 幾分鐘到幾小時 | `phc_bend.meep_bend_transmission`,經由 `engines/meep_bridge.py` |
+| 閉式解析解 | 幾秒 | `gates/g5_crossengine.analytic_transmission`(Airy 平板) |
+| 一個文獻值 | 幾分鐘 | 同一個結構的一個已發表數字,以具名常數的形式放在比對它的程式旁邊 |
+| 第二個引擎 | 幾分鐘到幾小時 | 一項經由 `engines/meep_bridge.py` 的 Meep 工作 |
 
 你的元件有哪個錨就挑最便宜的那個,而且**把它以函式的形式留在 repo 裡,不要
 留成 commit message 裡的一個數字**。
@@ -601,24 +576,23 @@ CPU 上大約 30 秒。如果你的數字是 0.5 而不是 0.01,常見成因依�
 | 陷阱 | 踩到的時候看起來像什麼 | 該用什麼 |
 |---|---|---|
 | Meep 在 DFT 場、`\|alpha\|²` 和 flux 上都略掉了物理上的那個 ½ | 一個乾淨、一致的 2 倍(3 dB)偏差,任何自洽性檢查都看不見 | `conventions.MEEP_POWER_OMITS_HALF`、`conventions.meep_to_physical_power` |
-| 模擬解析度低於設計網格的密度 | 正向場看起來是對的;adjoint 梯度卻系統性偏小(res 40 實測低 5–8%) | `conventions.assert_resolution_covers_design_grid(cfg)`;走 fdtdx Device 那條路的話再加 `grating_coupler.assert_design_grid_snaps(cfg)` |
+| 模擬解析度低於設計網格的密度 | 正向場看起來是對的;adjoint 梯度卻系統性偏小(res 40 實測低 5–8%) | `conventions.assert_resolution_covers_design_grid(cfg)` |
 | minimax FOM 的波長取樣太稀 | 被抽到的那幾個點每次迭代都在進步,而它們之間的頻譜整個塌下去;優化器自己的讀數變得沒有意義 | `conventions.assert_fom_sampling_covers_band(spacing_nm, feature_nm)` |
 | 拿單一固定波長去比兩個引擎 | 兩個引擎的頻譜峰位其實吻合,單點卻差幾十 dB——不同的離散化給出不同的**有效**幾何,每一條邊最多差半個 voxel | `conventions.CROSS_ENGINE_COMPARE_SPECTRA`:比曲線、比峰位、比峰值 |
 | `meep.adjoint` 的多頻梯度回來是 `(Nx, nf)` | 直接 ravel 會得到一個**長度**就錯的梯度,而它照樣跑得動 | `conventions.collapse_multifreq_gradient(dJ)`(對頻率求和) |
-| Meep 的 `decay_by` 預設值(1e-11) | 正確,而且在同等準確度下比 1e-6 慢約 3.4 倍 | 一律像 `phc_bend.meep_payload` 那樣明確傳 `cfg.dft_decay_tol` |
-| 對一個之後要進到加總裡的 flux 取 `abs()` | 取絕對值對**比值**是對的,對**守恆檢查**是錯的:各個面的 flux 只有在流入與流出保持相反符號時才可能互相抵消 | `grating_coupler.phasor_line_power`(取絕對值,給比值用)對上 `grating_coupler.signed_poynting_flux_x` / `signed_poynting_flux_z`(帶符號,給加總用) |
-| 把瞬時的時域偵測器和 phasor 量混在一起 | 一個量級看起來合理、意思卻不存在的數字——早期那份能量帳加起來變成 144–151% 就是這樣來的 | 一種量只用一個偵測器家族;`grating_coupler.energy_budget` 的 judgment #1 把這件事寫清楚了 |
-| 把一個承載設計自由度的軸平均掉 | run 正常結束、數字看起來很普通,而優化器拿到的是一個被抹平的目標函數 | `grating_coupler.ce_from_arrays` 會在監測面的 `ny` 和 `cfg.n_y_cells` 對不上時丟例外;照著那個形狀寫一道檢查 |
+| Meep 的 `decay_by` 預設值(1e-11) | 正確,而且在同等準確度下比 1e-6 慢約 3.4 倍 | 一律明確傳 `cfg.dft_decay_tol` |
+| 對一個之後要進到加總裡的 flux 取 `abs()` | 取絕對值對**比值**是對的,對**守恆檢查**是錯的:各個面的 flux 只有在流入與流出保持相反符號時才可能互相抵消 | 給比值用取絕對值,給加總用帶符號的 flux |
+| 把瞬時的時域偵測器和 phasor 量混在一起 | 一個量級看起來合理、意思卻不存在的數字——早期那份能量帳加起來變成 144–151% 就是這樣來的 | 一種量只用一個偵測器家族 |
+| 把一個承載設計自由度的軸平均掉 | run 正常結束、數字看起來很普通,而優化器拿到的是一個被抹平的目標函數 | 監測面沿那一軸的範圍和 config 對不上時就丟例外 |
 
 **怎麼讓你自己的陷阱大聲起來。** 這個 repo 用的寫法是:一個**在昂貴的工作開始
 之前就丟例外**的函式,放在 problem 模組裡,而且把**理由**寫進例外訊息裡:
 
-- `grating_coupler._box_bounds` 會在幾何違反了「盒子裡沒有損耗、也沒有光源」這個
-  前提時,拒絕報出能量閉合檢查的結果,並且說出該改哪一個參數。
-- `grating_coupler.assert_design_grid_snaps` 會拒絕一個沒辦法同時整除層厚與設計
-  像素的網格間距,並且把可以的那幾個間距列出來。
-- `grating_coupler.energy_budget` 第一行就呼叫 `_box_bounds`,刻意讓它在**付出
-  一次模擬的代價之前**就丟例外。
+- 幾何違反了「盒子裡沒有損耗、也沒有光源」這個前提時,拒絕報出能量閉合檢查的
+  結果,並且說出該改哪一個參數;
+- 拒絕一個沒辦法同時整除層厚與設計像素的網格間距,並且把可以的那幾個間距列
+  出來;
+- 在昂貴的函式第一行就呼叫這種護欄,讓它在**付出一次模擬的代價之前**就丟例外。
 
 如果你的 problem 在設定錯誤時會產生一個數字而不是一個錯誤,現在就把那道護欄
 寫下來。這比之後在結果裡發現它便宜太多了。
@@ -632,8 +606,7 @@ CPU 上大約 30 秒。如果你的數字是 0.5 而不是 0.01,常見成因依�
 pytest,所以一個丟進去的檔案從下一次 run 起就在那道 gate 裡了。
 
 先測那些**完全不需要模擬**的事情——它們才是能在幾毫秒內抓到幾何錯誤的那些。
-[`tests/test_phc_bend.py`](../tests/test_phc_bend.py) 是範本:每種佈局的柱子
-數量、介電常數值與面積佔比、幾何必須滿足的一個對稱性,以及「相除得到量測」的
+好的第一批測試:每種佈局的特徵數量、介電常數值與面積佔比、幾何必須滿足的一個對稱性,以及「相除得到量測」的
 那兩次 run 的光源到監測面路徑長度相等。然後才是一個用粗設定跑的快速物理回歸。
 
 ```python
@@ -715,12 +688,12 @@ uv run python scripts/00_check.py --only gradcheck   --problem <your_problem>
 
 ```python
 reciprocity_case=Unsupported(
-    "the measurement is p_bend / p_straight: two runs sharing one source and "
+    "the measurement is p_slab / p_empty: two runs sharing one source and "
     "one normalization, so the normalization cancels in the ratio and there "
     "is nothing left to check")
 ```
 
-(那是 `phc_bend` 真正的宣告。)runner 接著會印 `[n/a]`——或者在只有 gate 中
+runner 接著會印 `[n/a]`——或者在只有 gate 中
 「量 problem」的那一半被宣告掉時印 `[part]`——並且把你的理由印在同一行。它不是
 通過,也不是失敗,而且看起來不像其中任何一個。**你唯一不能做的是什麼都不說**:
 那個欄位沒有預設值,所以沉默是一個 import error,而 runner 會把它變成
@@ -897,9 +870,8 @@ uv run python scripts/22_slab.py --stage measure --set n_freq=7 \
 uv run python -m invdx.viz runs/<dir>          # 要向量輸出就加 --pdf
 ```
 
-有一個但書,因為在這裡猜錯的代價是一張標錯的圖:`gap.json` 和 `bend.json`
-**不是**通用的掛勾。`render_run` 會用光子晶體的標籤,加上一段寫死的參考能隙
-(`0.29–0.41`)去畫它們,因為它們屬於 `phc_bend`。**換成任何其他 problem,請
+有一個但書,因為在這裡猜錯的代價是一張標錯的圖:`render_run` 認得的檔名**不全是**
+通用的掛勾——有兩個是照寫出它們的那個 problem 去標的。**換成新的 problem,請
 自己取檔名**,並像上面那支 driver 一樣直接呼叫 `plots.plot_transmission` /
 `plots.plot_eps` / `plots.plot_field`。
 
@@ -946,7 +918,7 @@ state = optimize.run_loop(
 這份契約,以及裡面容易做錯的部分:
 
 - **`loss = -FOM`。** 這裡每一個 problem 都在**最大化**一個 FOM,所以
-  `history.csv` 記的是 `CE = -loss`。**符號接反的 FOM 會朝著你的目標的反方向
+  `history.csv` 把效率記成 `-loss`。**符號接反的 FOM 會朝著你的目標的反方向
   優化,而且把那個過程回報成「有進展」。**
 - `vg_fn` 也可以改成回傳 `((loss, aux), grad)`,由 `aux` 裝真正的效率和一個懲罰
   項;history 的欄位定義在 `optimize.HISTORY_HEADER`。
@@ -958,29 +930,25 @@ state = optimize.run_loop(
   `os.replace`),所以一次被中斷的 run 最多損失一次迭代。
 
 **沒有通用工具、因此你一定得自己寫的部分:**可微分的模擬場域,以及被 trace 的
-FOM。這個 repo 裡**沒有**與 problem 無關的 `Device` 工廠。`grating_coupler` 的
-那幾份是一維專用的——例如 `design_device` 裝的是
-`ConicFilter1D(radius_um=..., axis=0)` 再接 `fdtdx.TanhProjection`——所以請抄過去
-改,不要 import:
+FOM。這個 repo 裡**沒有**與 problem 無關的 `Device` 工廠,所以下面這四件要你
+自己寫:
 
-1. `grating_coupler.design_device` —— 在設計視窗上放一個 `fdtdx.Device`,一個
-   設計像素配一個 voxel,串上「濾波 → 投影」的參數鏈。
-2. `grating_coupler.build_scene_design` —— 把量測用的模擬場域裡的光柵換成那個
-   Device,再加上一個 checkpointed 的 `fdtdx.GradientConfig`。
-3. `grating_coupler.te0_target_on_monitor` ＋ `grating_coupler.ce_from_arrays`
-   —— 一個在 trace 之外只算一次的靜態目標,加上你那條量測鏈的 jnp 可微分版本,
-   從跑完的結果上讀出來。
-4. `grating_coupler.make_ce_value_and_grad` —— 把上面三件組成
+1. 一個 Device 工廠 —— 在設計視窗上放一個 `fdtdx.Device`,一個設計像素配一個
+   voxel,串上「濾波 → 投影」的參數鏈(`ConicFilter1D` / `ConicFilter2D`,再接
+   `fdtdx.TanhProjection`)。
+2. 一個設計用的模擬場域 —— 把量測用的模擬場域裡的結構換成那個 Device,再加上一個
+   checkpointed 的 `fdtdx.GradientConfig`。
+3. 一個被 trace 的 FOM —— 一個在 trace 之外只算一次的靜態目標,加上你那條量測鏈
+   的 jnp 可微分版本,從跑完的結果上讀出來。
+4. 一個 value-and-grad 工廠,把上面三件組成
    `jax.jit(jax.value_and_grad(loss))`。
 
 **在你燒掉 GPU 小時之前先確認它成了:**用
 [`richardson_fd.richardson_fd_check`](../src/invdx/richardson_fd.py) 對你的梯度
-做有限差分,它是 `gates/g2_gradcheck.py` 和
-`scripts/15_grating_coupler_optimize.py` 共用的那個核心。傳給它一個
+做有限差分,`gates/g2_gradcheck.py` 用的也是同一個核心。傳給它一個
 `evaluate(sign, h) -> float` 的 closure,讓它擾動一個設計 voxel,它會從兩種步長
-回報 `fd`、`rel_err` 和 `fd_consistency`。有兩條用昂貴代價學到、寫在
-[`optimize.zh-TW.md`](optimize.zh-TW.md) 和
-[`RETRACTIONS.zh-TW.md`](RETRACTIONS.zh-TW.md) 裡的規則:
+回報 `fd`、`rel_err` 和 `fd_consistency`。有兩條用昂貴代價學到的規則(來龍
+去脈見 [`RETRACTIONS.zh-TW.md`](RETRACTIONS.zh-TW.md)):
 
 - **只檢查梯度達到峰值一定比例的那些 voxel。** 低於那條訊號下限(signal floor)
   的地方,有限差分量到的是 float32 的捨入誤差,不是你的 adjoint。
@@ -988,9 +956,10 @@ FOM。這個 repo 裡**沒有**與 problem 無關的 `Device` 工廠。`grating_
   **截斷**誤差上,而 adjoint 其實是對的——兩種步長的 Richardson 形式存在的理由
   就是把這兩件事分開。
 
-然後把 [`optimize.zh-TW.md`](optimize.zh-TW.md) 整份讀完:Device 對方塊的等價性
-檢查、為什麼把起始設計 rasterize 是物理,而不是換個格式而已,以及為什麼優化器自己印出來的
-數字是一個排序訊號,永遠不是可以報出去的結果。
+長時間的 run 之前還有三件事要知道:先拿同一個二值設計,把可微分路徑和一條不可
+微分的量測對過,兩邊對上之前誰都別信;起始設計要照引擎擺 block 的方式去
+rasterize,否則你模擬的是另一個結構;優化器自己印出來的數字是一個排序訊號,永遠
+不是可以報出去的結果——最後的設計要重新量一次。
 
 ---
 
@@ -1027,22 +996,18 @@ FOM。這個 repo 裡**沒有**與 problem 無關的 `Device` 工廠。`grating_
 | `engines/meep_bridge.py` | 通用。要加一個 Meep 任務,就是在 `engines/meep_worker.py` 加一個 `task_<name>(payload, jobdir)`,並在那個檔案的 `TASKS` dict 裡註冊;payload 必須是單純的 JSON,陣列要另外經由 `run_job(..., arrays={...})` 傳。來回檢查:`make smoke-meep`。 |
 | `gates/g0`、`g1`、`g3`、`g5` | 與 problem 無關;你直接繼承。 |
 | `gates/g2` Part C、`gates/g4` | 對「problem 提供的 case」做通用檢查。在你的 `PROBLEM` 裡宣告 `gradcheck_case` / `reciprocity_case` 就繼承得到,或是宣告 `Unsupported(reason)`,拿到一個**標示清楚的缺口**而不是一個安靜的缺口(第 7 步)。 |
-| `viz/plots.py` | 由檔名驅動,大致上免費(見第 8 步),但 `gap.json` / `bend.json` 例外,它們帶著 `phc_bend` 的標籤。 |
+| `viz/plots.py` | 由檔名驅動,大致上免費(見第 8 步),只有兩個照寫出它們的那個 problem 去標的檔名例外。 |
 | `report.py` | 從 `results.json` 讀幾個鍵(`peak`、`bandwidth_3db`、`linewidth`、`spectrum`、`corners`、`s11`)。吐一樣的鍵,Markdown 表格就會動;吐別的鍵,就自己寫。 |
 | `export/gds.py` | 對一維二值剖面是通用的:`export_profile_gds(rho, grid_per_um=..., width_um=..., min_feature_um=..., out=...)`,外加一道最小線寬自檢。 |
-| `export/handoff.py` | 有一部分是 `grating_coupler` 專用的。它會替任何一次 run 匯出設計向量、頻譜和 manifest,但碰到它不認得的 config 就會跳過介電常數的 raster,並在 manifest 的備註裡說出來。 |
-| `datasets.py` | 目前只服務 `grating_coupler`。 |
+| `export/handoff.py` | 有一部分是特定 problem 專用的。它會替任何一次 run 匯出設計向量、頻譜和 manifest,但碰到它不認得的 config 就會跳過介電常數的 raster,並在 manifest 的備註裡說出來。 |
+| `datasets.py` | 目前只接著一個既有的 problem;新的 problem 要經由一個新的取樣 `kind` 接進來。 |
 | `fab/` | 通用:`ConicFilter1D` / `ConicFilter2D`、`min_feature_1d`、`erode_dilate_1d`、`softmin`、`tanh_projection`。 |
 
 ---
 
 ## 接下來讀哪裡
 
-- [`phc-bend-walkthrough.zh-TW.md`](phc-bend-walkthrough.zh-TW.md) —— 同一批材料
-  換成物理教學的講法:在兩個引擎上一步一條指令重現一個文獻基準。第 4 步的
-  「把它錨住」如果是你最沒把握的那一段,就去讀它。
-- [`optimize.zh-TW.md`](optimize.zh-TW.md) —— 第 9 步背後的全部細節。
-- [`tolerance.zh-TW.md`](tolerance.zh-TW.md) —— 設計做出來之後,怎麼拿製程誤差
-  去評它。
+- [`RETRACTIONS.zh-TW.md`](RETRACTIONS.zh-TW.md) —— 第 9 步那兩條規則背後的
+  gradcheck 失敗,完整的來龍去脈。
 - [`env.zh-TW.md`](env.zh-TW.md) —— 環境的兩層分工,萬一這一頁有什麼東西
   import 不起來就去讀它。

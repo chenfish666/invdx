@@ -31,8 +31,8 @@ problems; `make bilingual` prints the pairs it found and fails when a floor
 drops; `make runs` lists the run directories) or it is replaced by the
 qualitative claim it was standing in for. The counts that do survive in prose
 are the ones a reader can falsify without leaving the page: "six gates" stays
-because all six are named, one per row, in the table under the sentence and
-again in the workflow diagram, so a seventh gate makes the word visibly wrong.
+because all six are named, one per row, in the gate table, so a seventh gate
+makes the word visibly wrong.
 "178 tests" did not stay, because nothing on the page could ever contradict it.
 
 The known exception is [`dependencies.md`](dependencies.md), which still
@@ -56,18 +56,10 @@ known to-do, not an oversight this paragraph is unaware of.
 
 ## Tutorials
 
-- [`phc-bend-walkthrough.md`](phc-bend-walkthrough.md) — hands-on, one-command-per-step
-  reproduction of the classic PhC 90° bend benchmark on both engines.
-  **Languages:** English · [繁體中文](phc-bend-walkthrough.zh-TW.md).
-- [`../tutorials/01-jax-port/`](../tutorials/01-jax-port/) — lesson one: porting a
+- [`../tutorials/01-jax-port/`](../tutorials/01-jax-port/) — porting a
   2D FDTD to JAX, with a deliberately gapped skeleton to fill in yourself.
   **Languages:** [English](../tutorials/01-jax-port/README.md) ·
   [繁體中文](../tutorials/01-jax-port/README.zh-TW.md) — lesson page and its
-  `RESULTS` reference output both.
-- [`../tutorials/02-first-adjoint/`](../tutorials/02-first-adjoint/) — lesson two:
-  your first adjoint gradient, checked against finite differences.
-  **Languages:** [English](../tutorials/02-first-adjoint/README.md) ·
-  [繁體中文](../tutorials/02-first-adjoint/README.zh-TW.md) — lesson page and its
   `RESULTS` reference output both.
 
 ## Environment & reproduction
@@ -89,25 +81,14 @@ known to-do, not an oversight this paragraph is unaware of.
 
 ## How-to
 
-- [`new-problem.md`](new-problem.md) — add your own device to the toolbox:
-  what a problem module has to provide, which file to copy from, how to look
-  at the geometry before paying for a simulation, and the convention
-  contracts that give a wrong answer quietly rather than raising. The two
-  gates that measure a concrete device (G2 Part C, G4) are inherited by
-  declaring one `ProblemSpec` — or declined in writing, with the reason
-  printed by the gate; forgetting to decide is an import error rather than a
-  silent loss of coverage.
+- [`new-problem.md`](new-problem.md) — add a problem of your own: what a
+  problem module declares, how to look at the geometry before paying for a
+  simulation, and the conventions that give a wrong answer quietly rather
+  than raising. The two gates that measure a concrete problem (G2 Part C,
+  G4) are inherited by declaring one `ProblemSpec` — or declined in writing,
+  with the reason printed by the gate; forgetting to decide is an import
+  error rather than a silent loss of coverage.
   **Languages:** English · [繁體中文](new-problem.zh-TW.md).
-
-## Method notes
-
-- [`optimize.md`](optimize.md) — the inverse-design loop: the
-  differentiable Device path, FOM, Richardson gradcheck, checkpoint/resume,
-  and Slurm usage.
-  **Languages:** English · [繁體中文](optimize.zh-TW.md).
-- [`tolerance.md`](tolerance.md) — design-for-tolerance method notes and
-  reporting conventions (sensitivity maps, corner evaluation).
-  **Languages:** English · [繁體中文](tolerance.zh-TW.md).
 
 ## Export
 

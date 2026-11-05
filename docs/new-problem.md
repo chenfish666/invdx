@@ -58,7 +58,7 @@ the registry key, would be a copy with no derivation and nothing comparing
 it. If you declare a `name=` anyway and it disagrees with the name you loaded
 under, `load` raises rather than quietly correcting you; and a dotted path
 whose last segment is a *registered* problem's name —
-`yourpkg.problems.grating_coupler` — is refused before it is imported,
+`yourpkg.problems.<registered_name>` — is refused before it is imported,
 whatever the module does or does not declare. Both refusals protect the same
 thing: the name is the key the gate reports are filed under
 (`<your_problem>_f0`, `<your_problem>_fd_checks`,
@@ -77,7 +77,7 @@ the path is the one field that can be checked against a tree, and it stays in
 Neither `problem` nor `problem_module` is yours to write. Both are stamped by
 the gate from the spec `load` returned, and a `ReciprocityCase.extra` or
 `GradcheckCase.info` carrying either name is refused with the colliding key
-named — as is any key the gate measures itself (`CE_fwd_dB`, `grad_max`, …)
+named — as is any key the gate measures itself (`grad_max`, …)
 or the runner writes (`seconds`, `reason`, `exception`). Put your own numbers
 under your own names. The rule exists because a silent merge would file your
 value under the gate's name: the report still parses, every expected key is
@@ -133,7 +133,7 @@ copied G3's declaration — comment block and all — into a new gate that reall
 did measure a device, and the gate reported its numbers, stamped no identity
 and printed `[ok]`. Three characters that are correct in four modules cannot
 be wrong in a fifth. A sentence about an empty cell can, and a reviewer sees
-it sitting next to the coupling efficiencies. That is the whole of what this
+it sitting next to the numbers the gate reports. That is the whole of what this
 buys: the copy becomes **visible**, not impossible — the same boundary as the
 section just below. The one thing it does enforce is that `False` no longer
 parses, so nobody carries the old spelling forward by accident.
@@ -181,9 +181,9 @@ the module path to go and read. They are a pointer to the evidence, not the
 evidence.
 
 Everything else is a convention rather than a contract, and the honest reason
-is worth stating: across the two shipped problems the intersection of
-module-level function names is **empty**. `grating_coupler` and `phc_bend`
-share no callable at all. So the table below describes shapes you will end up
+is worth stating: across the problems written so far the intersection of
+module-level function names is **empty** — they share no callable at
+all. So the table below describes shapes you will end up
 writing, not names anything imports.
 
 | you provide | who consumes it | required? |
@@ -209,28 +209,17 @@ device anyone designs.
 
 ---
 
-## Step 0 — decide what to copy
+## Step 0 — decide which engine the problem runs on
 
-| copy from | when | why |
+| engine | when | what it means for the module |
 |---|---|---|
-| [`src/invdx/problems/phc_bend.py`](../src/invdx/problems/phc_bend.py) | your problem runs on the toy 2D engine and/or Meep, on CPU | numpy-pure — it imports no jax and no fdtdx, which is exactly what lets `engines/meep_worker.py` import it *inside* the Meep environment so both engines consume one geometry definition. Config + geometry + a handful of ratio measurements, nothing else. |
-| [`src/invdx/problems/grating_coupler.py`](../src/invdx/problems/grating_coupler.py) | your problem needs the fdtdx GPU engine and/or adjoint gradients | by far the longest module in the repo, and most of that length is one device's measurement chain: do not copy the file. Copy sections. If your problem also needs a Meep cross-check, copy its split too: the config, the geometry and the CE normalization live in `problems/grating_coupler_np.py`, numpy-pure so the Meep worker can import them, and `grating_coupler` re-exports them. |
+| the toy 2D engine (`src/invdx/toy/`), CPU | 2D TM problems, cheap anchors, learning | keep the module numpy-pure — no jax, no fdtdx imports — and `engines/meep_worker.py` can import it *inside* the Meep environment, so both engines consume one geometry definition |
+| fdtdx, GPU | quasi-2D or 3D, adjoint gradients | the module imports jax and fdtdx; the scene factories in `engines/fdtdx_engine.py` show how an fdtdx object list and its placement constraints are assembled. If the problem also wants the Meep cross-check, give it a numpy-pure half for the worker to import, as `problems/grating_coupler_np.py` is for `grating_coupler` |
+| Meep, through the bridge | an independent 2D cross-check | one more task in `engines/meep_worker.py` (see the map at the end of this page) |
 
-`phc_bend` is the better model for the *shape* of a problem module. `grating_coupler` is
-the reference for the shape of an fdtdx measurement chain; these are the
-sections worth reading before you write your own:
-
-| section of `grating_coupler.py` | what it shows you |
-|---|---|
-| `build_scene` | assembling an fdtdx object list + placement constraints |
-| `_run`, `_phasor` | running the scene and reading a `PhasorDetector` line back |
-| `characterize`, `beam_power_and_tilt` | a measurement and its normalization run |
-| `_box_bounds`, `check_energy_closure` | how to write a guard that *refuses* rather than returning a plausible number |
-| `design_device`, `build_scene_design` | the differentiable `fdtdx.Device` path |
-| `te0_target_on_monitor`, `ce_from_arrays`, `make_ce_value_and_grad` | a traced FOM and its value-and-grad factory |
-
-The rest of this page builds a new problem from scratch, in the `phc_bend`
-style, and points at the `grating_coupler` equivalent at each step.
+The rest of this page builds a new problem from scratch on the toy engine — a
+dielectric slab, checked against a closed-form answer — and notes the fdtdx
+equivalent where it differs.
 
 ---
 
@@ -279,15 +268,13 @@ Four rules that bite:
 2. **Write float defaults as float literals.** `cli._cast_like` casts a
    `--set` value to the type of the *current* default, so a field declared
    `0` is an int forever and `--set w=0.3` dies inside `int("0.3")`.
-   `GratingCouplerConfig.w_s11` carries this warning inline for exactly that reason.
 3. **Derived values are `@property`, never fields.** Properties do not appear
    in `dataclasses.asdict`, so `config.json` stays the minimal set of inputs a
-   run can be rebuilt from. `PhCBendConfig.freqs` and `GratingCouplerConfig.X0` /
-   `cell_x` / `cell_z` are the pattern.
+   run can be rebuilt from. `SlabConfig.freqs` above is the pattern.
 4. **`BaseConfig` fields you never use still appear** in `config.json` and in
    the valid-keys error message. That is accepted noise, not a bug to fix:
-   `PhCBendConfig` inherits `min_feature`, `eta_e` and `beta_schedule` and
-   reads none of them.
+   a toy-engine problem inherits `min_feature`, `eta_e` and `beta_schedule`
+   and reads none of them.
 
 **Check it worked.** A config that round-trips and rejects nonsense:
 
@@ -311,8 +298,9 @@ unknown config key: nonsense
 If a typo is silently ignored instead, you are not going through
 `cli.apply_overrides`.
 
-> **Values a caller passes, not a user.** `grating_coupler` sets `cfg._lams_um` before
-> building a scene and restores it in a `finally`. Attributes that are not
+> **Values a caller passes, not a user.** A problem may set a private
+> attribute such as `cfg._lams_um` before building a scene and restore it in
+> a `finally`. Attributes that are not
 > dataclass fields are invisible to `config.json` and to `--set` — fine for
 > something a caller sets programmatically, wrong for anything a user should
 > be able to tune.
@@ -322,9 +310,8 @@ If a typo is silently ignored instead, you are not going through
 ## Step 2 — geometry first, and look at it before you simulate
 
 **No simulation until you have looked at the permittivity your code actually
-built.** Both shipped problems make this a first-class stage:
-`python scripts/06_phc_bend.py --stage eps` prints an ASCII map of all three
-layouts and saves the arrays.
+built.** Make it a stage of its own; the driver script in step 8 has
+`--stage eps` for exactly this.
 
 For a numpy/toy problem the geometry is just an array:
 
@@ -366,24 +353,16 @@ the grid can be read back:
 ```bash
 uv run python -c "
 import jax, numpy as np, fdtdx
-from invdx.problems import grating_coupler
-cfg = grating_coupler.GratingCouplerConfig(spacing_um=0.040)
-sim_config, objs, cons = grating_coupler.build_scene(
-    cfg, teeth=grating_coupler.uniform_grating_teeth(cfg, 0.6, 0.5))
+from invdx.problems import <your_problem> as prob
+cfg = prob.<YourName>Config()
+sim_config, objs, cons = prob.build_scene(cfg)
 objects, arrays, params, sim_config, _ = fdtdx.place_objects(
     object_list=objs, config=sim_config, constraints=cons,
     key=jax.random.PRNGKey(0))
 eps = 1.0 / np.asarray(arrays.inv_permittivities)[0]
 print('eps grid:', eps.shape, 'unique:', np.unique(np.round(eps, 3)))
 print('time steps:', sim_config.time_steps_total)
-print('wg_mon phasor shape:', arrays.detector_states['wg_mon']['phasor'].shape)
 "
-```
-
-```
-eps grid: (500, 4, 243) unique: [ 1.     2.094 12.271]
-time steps: 19669
-wg_mon phasor shape: (1, 1, 2, 1, 4, 62)
 ```
 
 This costs seconds and catches, before you pay for a run: a block placed
@@ -396,12 +375,11 @@ Two constraints to design around:
 - **Toy engine:** `eps` must be `1.0` on the outermost cells. The first-order
   Mur boundary assumes the vacuum wave speed there. Material touching the
   edge does not raise — it reflects, and the reflection sets your noise floor.
-- **Boundary rims are part of the measurement.** `phc_bend` carries one extra
-  ring of lattice sites *into* the rim; without it, light bypasses the crystal
-  through the vacuum around it and the measured in-gap suppression is
-  bypass-limited rather than crystal-limited (an effect worth tens of dB —
-  see `rod_sites`' docstring and step 1 of
-  [`phc-bend-walkthrough.md`](phc-bend-walkthrough.md)).
+- **The rim around the structure is part of the measurement.** If light can
+  go around the structure through the vacuum beside it, the measured
+  suppression is set by that bypass rather than by the structure — an effect
+  worth tens of dB. Extend the structure into the rim, or measure the bypass
+  on its own.
 
 ---
 
@@ -410,17 +388,15 @@ Two constraints to design around:
 Every physical number in this repo is a ratio of two runs that differ only in
 the thing under test:
 
-- `phc_bend`: bend output / straight-waveguide output; crystal slab / empty
-  cell
-- `grating_coupler`: mode power at the waveguide monitor / incident beam power from an
-  empty-cell run
+- a transmission: output power with the structure / output power through the
+  empty cell
+- an efficiency into a mode: mode power at the monitor / incident power from a
+  run without the device
 
-**"Differ only" is literal.** The `grating_coupler` module docstring states the
-condition that makes its ratio valid: all the building blocks are computed
-from detector fields at the same wavelength and the same run duration, so
-phasor scaling factors cancel exactly. `GratingCouplerConfig.sim_time_s` repeats the
-warning at the field itself: keep it *identical* between a measurement run
-and its normalization run. Change it in one and not the other and you get a
+**"Differ only" is literal.** Build every term of the ratio from detector
+fields at the same wavelength and the same run duration, so the phasor
+scaling factors cancel exactly, and keep `sim_time_s` *identical* between a
+measurement run and its normalization run. Change it in one and not the other and you get a
 wrong answer with no error message.
 
 Checklist for your normalization run — same grid spacing and shape, same
@@ -430,7 +406,7 @@ list. The structure is the only difference.
 The measurement functions themselves should return **plain JSON-able dicts**
 (lists, floats, strings — no numpy scalars, no arrays). That is what lets
 `runio.save_json` write them straight into the run directory, and it is why
-`toy_bend_transmission` ends in `.tolist()` calls.
+`toy_transmission` in the worked example below ends in `.tolist()` calls.
 
 ---
 
@@ -441,9 +417,9 @@ is worth optimizing, it needs an anchor — a number you did not choose.
 
 | anchor | cost | example in this repo |
 |---|---|---|
-| closed-form analytic result | seconds | `gates/g5_crossengine.analytic_transmission` (Airy slab); `grating_coupler.slab_te0_neff` (asymmetric-slab dispersion relation) |
-| a literature value | minutes | `phc_bend`'s reference band gap `f = 0.29..0.41`, `GAP_REF` in `scripts/06_phc_bend.py` |
-| a second engine | minutes to hours | `phc_bend.meep_bend_transmission` through `engines/meep_bridge.py` |
+| closed-form analytic result | seconds | `gates/g5_crossengine.analytic_transmission` (Airy slab) |
+| a literature value | minutes | a published number for the same structure, kept as a named constant next to the comparison |
+| a second engine | minutes to hours | a Meep task through `engines/meep_bridge.py` |
 
 Prefer the cheapest anchor that exists for your device, and keep it in the
 repo as a function, not as a number in a commit message.
@@ -601,27 +577,26 @@ so a new problem does not have to rediscover them.
 | trap | what it looks like when you get it wrong | what to use |
 |---|---|---|
 | Meep omits the physical ½ in DFT fields, `\|alpha\|²` and fluxes | a clean, consistent factor of 2 (3 dB) that no self-consistency check can see | `conventions.MEEP_POWER_OMITS_HALF`, `conventions.meep_to_physical_power` |
-| simulation resolution below the design-grid density | forward fields look right; adjoint gradients come back systematically small (measured 5–8% low at res 40) | `conventions.assert_resolution_covers_design_grid(cfg)`; for the fdtdx Device path also `grating_coupler.assert_design_grid_snaps(cfg)` |
+| simulation resolution below the design-grid density | forward fields look right; adjoint gradients come back systematically small (measured 5–8% low at res 40) | `conventions.assert_resolution_covers_design_grid(cfg)` |
 | sparse wavelength sampling in a minimax FOM | the sampled points improve every iteration while the spectrum collapses between them; the optimizer's own readout becomes meaningless | `conventions.assert_fom_sampling_covers_band(spacing_nm, feature_nm)` |
 | comparing two engines at one fixed wavelength | tens of dB of disagreement between engines whose spectral peaks actually agree — different discretizations give different *effective* geometry, up to half a cell per edge | `conventions.CROSS_ENGINE_COMPARE_SPECTRA`: compare curves, peak positions and peak values |
 | `meep.adjoint` multi-frequency gradient arrives as `(Nx, nf)` | a ravel gives a wrong-*length* gradient that still runs | `conventions.collapse_multifreq_gradient(dJ)` (frequency sum) |
-| Meep's `decay_by` default (1e-11) | correct, and ~3.4x slower than 1e-6 at equal accuracy | always pass `cfg.dft_decay_tol` explicitly, as `phc_bend.meep_payload` does |
-| taking `abs()` of a flux that then enters a sum | a magnitude is right for a *ratio* and wrong for a *conservation check*: face fluxes can only cancel if inflow and outflow keep opposite signs | `grating_coupler.phasor_line_power` (abs, for ratios) vs `grating_coupler.signed_poynting_flux_x` / `signed_poynting_flux_z` (signed, for sums) |
-| mixing an instantaneous time-domain detector with phasor quantities | a number with plausible magnitude and no meaning — this is what made an early energy tally sum to 144–151% | one detector family per quantity; `grating_coupler.energy_budget`'s judgment #1 spells it out |
-| averaging away an axis that carries design freedom | the run exits 0, the numbers look ordinary, and the optimizer has been handed a smeared objective | `grating_coupler.ce_from_arrays` raises when the monitor's `ny` does not match `cfg.n_y_cells`; copy that shape of check |
+| Meep's `decay_by` default (1e-11) | correct, and ~3.4x slower than 1e-6 at equal accuracy | always pass `cfg.dft_decay_tol` explicitly |
+| taking `abs()` of a flux that then enters a sum | a magnitude is right for a *ratio* and wrong for a *conservation check*: face fluxes can only cancel if inflow and outflow keep opposite signs | an absolute value for ratios, a signed flux for sums |
+| mixing an instantaneous time-domain detector with phasor quantities | a number with plausible magnitude and no meaning — this is what made an early energy tally sum to 144–151% | one detector family per quantity |
+| averaging away an axis that carries design freedom | the run exits 0, the numbers look ordinary, and the optimizer has been handed a smeared objective | raise when a monitor's extent along that axis does not match the config |
 
 **How to make your own trap loud.** The pattern this repo uses is a function
 that raises before the expensive work starts, placed in the problem module,
 with the *reason* in the exception text:
 
-- `grating_coupler._box_bounds` refuses to report an energy-closure check whose
-  "no loss and no source inside the box" premise is violated by geometry, and
-  says which knob to change.
-- `grating_coupler.assert_design_grid_snaps` refuses a grid spacing that does not divide
-  both the layer thickness and the design pixel, and names the spacings that
-  do.
-- `grating_coupler.energy_budget` calls `_box_bounds` on its first line, explicitly so
-  it raises *before* paying for a simulation.
+- refuse to report an energy-closure check whose "no loss and no source
+  inside the box" premise the geometry violates, and say which knob to
+  change;
+- refuse a grid spacing that does not divide both the layer thickness and the
+  design pixel, and name the spacings that do;
+- call such a guard on the first line of the expensive function, so it raises
+  *before* you pay for a simulation.
 
 If a wrong configuration of your problem can produce a number rather than an
 error, write that guard now. It is much cheaper than finding it in a result.
@@ -636,9 +611,9 @@ Put tests in `tests/test_<your_problem>.py`. Nothing needs registering:
 onwards.
 
 Test the things that need no simulation first — they are the ones that catch
-geometry mistakes in milliseconds. [`tests/test_phc_bend.py`](../tests/test_phc_bend.py)
-is the model: rod counts per layout, permittivity values and area fraction, a
-symmetry the geometry must obey, and equal source-to-monitor path lengths for
+geometry mistakes in milliseconds. Good first tests: feature counts per
+layout, permittivity values and area fraction, a symmetry the geometry must
+obey, and equal source-to-monitor path lengths for
 the two runs whose ratio is the measurement. Then one fast physics regression
 with coarse settings.
 
@@ -722,12 +697,12 @@ with the argument**:
 
 ```python
 reciprocity_case=Unsupported(
-    "the measurement is p_bend / p_straight: two runs sharing one source and "
+    "the measurement is p_slab / p_empty: two runs sharing one source and "
     "one normalization, so the normalization cancels in the ratio and there "
     "is nothing left to check")
 ```
 
-(That is `phc_bend`'s real declaration.) The runner then prints `[n/a]` — or
+The runner then prints `[n/a]` — or
 `[part]`, when only the problem-specific half of a gate was declared away —
 with your reason on the same line. It is not a pass, it is not a failure, and
 it does not look like either. What you cannot do is say nothing: the slot has
@@ -908,11 +883,10 @@ filename it recognizes. Write these names and the figures are free:
 uv run python -m invdx.viz runs/<dir>          # add --pdf for vector output
 ```
 
-One caveat, since guessing wrong here costs you a mislabelled figure:
-`gap.json` and `bend.json` are **not** generic hooks. `render_run` renders
-them with photonic-crystal labels and a hardcoded reference band
-(`0.29–0.41`), because they belong to `phc_bend`. For any other problem,
-choose your own filename and call `plots.plot_transmission` /
+One caveat, since guessing wrong here costs you a mislabelled figure: not
+every filename `render_run` knows is a generic hook — a couple are labelled
+for the problem that writes them. For a new problem, choose your own
+filename and call `plots.plot_transmission` /
 `plots.plot_eps` / `plots.plot_field` directly, as the driver above does.
 
 ---
@@ -948,7 +922,7 @@ state = optimize.run_loop(
 The contract, and the parts of it that are easy to get wrong:
 
 - **`loss = -FOM`.** Every problem here maximizes a figure of merit, so
-  `history.csv` records `CE = -loss`. A FOM plugged in with the wrong sign
+  `history.csv` records the efficiency as `-loss`. A FOM plugged in with the wrong sign
   optimizes away from your goal and reports it as progress.
 - `vg_fn` may instead return `((loss, aux), grad)` with `aux` holding the true
   efficiency and a penalty term; the history columns are
@@ -962,28 +936,24 @@ The contract, and the parts of it that are easy to get wrong:
 
 **What has no generic helper, and that you will therefore write yourself:**
 the differentiable scene and the traced FOM. There is no problem-independent
-`Device` factory in this repo. The `grating_coupler` versions are 1-D-specific — for
-instance `design_device` installs `ConicFilter1D(radius_um=..., axis=0)`
-followed by `fdtdx.TanhProjection` — so copy and adapt rather than import:
+`Device` factory in this repo, so these four pieces are yours:
 
-1. `grating_coupler.design_device` — one `fdtdx.Device` over the design window, one voxel
-   per design pixel, with the filter → projection parameter chain.
-2. `grating_coupler.build_scene_design` — the measurement scene with the grating replaced
-   by that Device, plus a checkpointed `fdtdx.GradientConfig`.
-3. `grating_coupler.te0_target_on_monitor` + `grating_coupler.ce_from_arrays` — a static target
-   computed once outside the trace, and a jnp twin of your measurement read
-   off the finished run.
-4. `grating_coupler.make_ce_value_and_grad` — assembles the above into
+1. a Device factory — one `fdtdx.Device` over the design window, one voxel per
+   design pixel, with the filter → projection parameter chain
+   (`ConicFilter1D` / `ConicFilter2D`, then `fdtdx.TanhProjection`);
+2. a design scene — the measurement scene with the structure replaced by that
+   Device, plus a checkpointed `fdtdx.GradientConfig`;
+3. a traced FOM — a static target computed once outside the trace, and a jnp
+   twin of your measurement read off the finished run;
+4. a value-and-grad factory that assembles the above into
    `jax.jit(jax.value_and_grad(loss))`.
 
 **Check it worked, before you spend GPU-hours:** finite-difference your
 gradient with [`richardson_fd.richardson_fd_check`](../src/invdx/richardson_fd.py),
-which is the shared core both `gates/g2_gradcheck.py` and
-`scripts/15_grating_coupler_optimize.py` use. Pass it an `evaluate(sign, h) -> float`
+which is the same core `gates/g2_gradcheck.py` uses. Pass it an `evaluate(sign, h) -> float`
 closure that perturbs one design voxel, and it returns `fd`, `rel_err` and
-`fd_consistency` from two step sizes. Two rules learned the expensive way and
-written up in [`optimize.md`](optimize.md) and
-[`RETRACTIONS.md`](RETRACTIONS.md):
+`fd_consistency` from two step sizes. Two rules learned the expensive way
+(the story is in [`RETRACTIONS.md`](RETRACTIONS.md)):
 
 - Check only voxels carrying a meaningful fraction of the peak gradient.
   Below that floor the finite difference measures float32 rounding, not your
@@ -992,10 +962,12 @@ written up in [`optimize.md`](optimize.md) and
   single-step-size FD can fail on *truncation* error while the adjoint is
   correct — which is what the two-step Richardson form exists to separate.
 
-Then read [`optimize.md`](optimize.md) in full: the Device-vs-blocks
-equivalence check, why rasterizing a starting design is physics rather than
-formatting, and why the optimizer's own printed number is a ranking signal
-and never a reportable result.
+Three more things to know before a long run: check the differentiable path
+against a non-differentiable measurement of the same binary design before
+believing either; rasterize a starting design the way the engine places
+blocks, or you are simulating a different structure; and treat the
+optimizer's own printed number as a ranking signal, never as a reportable
+result — re-measure the final design.
 
 ---
 
@@ -1032,22 +1004,18 @@ Written down so you can plan, rather than discover it halfway through.
 | `engines/meep_bridge.py` | generic. Adding a Meep task means adding `task_<name>(payload, jobdir)` to `engines/meep_worker.py` and registering it in that file's `TASKS` dict; the payload must be plain JSON, with arrays passed separately via `run_job(..., arrays={...})`. Round-trip check: `make smoke-meep`. |
 | `gates/g0`, `g1`, `g3`, `g5` | problem-independent; you inherit them. |
 | `gates/g2` Part C, `gates/g4` | generic checks over a problem-supplied case. You inherit them by declaring `gradcheck_case` / `reciprocity_case` in your `PROBLEM`, or declare `Unsupported(reason)` and get a labelled gap instead of a silent one (step 7). |
-| `viz/plots.py` | filename-driven and mostly free (see step 8), except `gap.json` / `bend.json`, which carry `phc_bend`'s labels. |
+| `viz/plots.py` | filename-driven and mostly free (see step 8), except a couple of filenames labelled for the problem that writes them. |
 | `report.py` | reads keys out of `results.json` (`peak`, `bandwidth_3db`, `linewidth`, `spectrum`, `corners`, `s11`). Emit the same keys and the Markdown table works; emit different ones and write your own. |
 | `export/gds.py` | generic for a 1-D binary profile: `export_profile_gds(rho, grid_per_um=..., width_um=..., min_feature_um=..., out=...)` plus a minimum-feature self-check. |
-| `export/handoff.py` | partly `grating_coupler`-specific. It exports the design vector, spectra and manifest for any run, but skips the permittivity raster for a config it does not recognize and says so in the manifest notes. |
-| `datasets.py` | `grating_coupler`-only today. |
+| `export/handoff.py` | partly problem-specific. It exports the design vector, spectra and manifest for any run, but skips the permittivity raster for a config it does not recognize and says so in the manifest notes. |
+| `datasets.py` | tied to one existing problem today; a new problem plugs in through a new sampling `kind`. |
 | `fab/` | generic: `ConicFilter1D` / `ConicFilter2D`, `min_feature_1d`, `erode_dilate_1d`, `softmin`, `tanh_projection`. |
 
 ---
 
 ## Where to go next
 
-- [`phc-bend-walkthrough.md`](phc-bend-walkthrough.md) — the same material as
-  a physics tutorial: reproducing a literature benchmark step by step on two
-  engines. Read it if step 4's "anchor it" is the part you are least sure of.
-- [`optimize.md`](optimize.md) — everything behind step 9.
-- [`tolerance.md`](tolerance.md) — once a design exists, how it is evaluated
-  against fabrication error.
+- [`RETRACTIONS.md`](RETRACTIONS.md) — the gradcheck failure behind step 9's
+  two rules, told in full.
 - [`env.md`](env.md) — the environment split, if anything in this page failed
   to import.

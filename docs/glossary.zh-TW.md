@@ -31,7 +31,7 @@
 | 哪個中文寫法綁哪個英文 join key | 中文寫法出現的每一節,對側有沒有那個英文詞 |
 
 判準很好用:理由欄可以寫「『行程』在中文第一義是旅遊行程」——那是**關於中文
-的事實**,不會因為誰改了哪份檔而變假;不可以寫「`optimize.zh-TW.md` 現在寫的
+的事實**,不會因為誰改了哪份檔而變假;不可以寫「`env.zh-TW.md` 現在寫的
 是 X」——那是**關於別份檔案現況的描述**,而那份檔案正被這張表促成的修訂改動。
 
 檢查器只做機械可查的事:字串比對與錨點解析。它查不到語意,也查不到一個符號
@@ -67,8 +67,8 @@
 
 不是先想好一份「應該要有的術語」再填進來的,是**從證據長出來的**。
 
-這個 repo 的六份中文對照(`env`、`dependencies`、`journal`、`optimize`、
-`RETRACTIONS`、`tolerance`)寫完之後,各交給一位沒有參與撰寫、也沒讀過英文
+這個 repo 的六份中文對照(`env`、`dependencies`、`journal`、`RETRACTIONS`,
+以及兩份後來已經移除的方法筆記)寫完之後,各交給一位沒有參與撰寫、也沒讀過英文
 原檔的讀者冷讀,並且被問了同一個問題:**「把每一個你必須用猜的詞列出來。」**
 六份總共回報 95 個。這份表收的就是那 95 個裡面站得住的那些。
 
@@ -76,13 +76,11 @@
 長出來的,對他而言每一個都理所當然。**這是位置決定的,不是用不用心決定的**;
 所以入口佇列只能是冷讀者的猜測清單,不能是作者的回憶。
 
-證據來源(這六份就是被冷讀的六份):
+證據來源(被冷讀的六份裡還留在 repo 的四份;另外兩份方法筆記已經移除):
 [`env.zh-TW.md`](env.zh-TW.md)、
 [`dependencies.zh-TW.md`](dependencies.zh-TW.md)、
 [`journal.zh-TW.md`](journal.zh-TW.md)、
-[`optimize.zh-TW.md`](optimize.zh-TW.md)、
-[`RETRACTIONS.zh-TW.md`](RETRACTIONS.zh-TW.md)、
-[`tolerance.zh-TW.md`](tolerance.zh-TW.md)。
+[`RETRACTIONS.zh-TW.md`](RETRACTIONS.zh-TW.md)。
 
 一個維護上的但書:這份表本身也是「同一件事寫兩份」,中英兩側各一。
 `make bilingual` 查得到它們的結構有沒有對上,查不了意思有沒有對上。
@@ -128,10 +126,10 @@
 
 | 概念 | English original | 規定的中文寫法 | 為什麼(機制與碰撞) |
 |---|---|---|---|
-| 把設計畫到設計像素網格上 | rasterize | `rasterize` | 這批文件通篇在講 grating(光柵),任何照字面譯出來的中文名都會和它撞在一起。**不要用「光柵化」**;**不要用「重新離散成幾何」**,那是另造的第二個名字 |
-| 服役中／實際拿來跑正事的那一套 | production | 「正式運轉」(首次出現附 production) | 這條問的是**是不是正式在用的那一套**(那支 driver、那組相依),不問規模。**不要用「產線」**——那兩個字在中文第一義是工廠裡的製造流水線,而這個題目本來就在講 SOI/DUV 製程,讀者會直接接到晶圓廠那條線上去 |
-| 跑的規模有多大 | production-scale | 「正式規模」(首次出現附 production-scale) | 這條問的是**規模**,對比的是 smoke 與 toy 那一類的小輸入;0.8 ps、θ=10 那一組不屬於那一類,它正是這個詞要指的規模(見 `RETRACTIONS.zh-TW.md`〈2026-08-17 — gradcheck 失敗的成因被誤判成 float32 的 cancellation〉)。**和上一列不是同一個概念,不可互換**。**不要用「正式運轉規模」**:把兩個概念壓成一個詞,比兩種寫法更難查,因為它讀起來像已經統一好了 |
-| 同一條 CE 計算鏈的可微分版本 | jnp twin | 「jnp 可微分版本」 | twin 的中文譯法在技術語境會被讀成 digital twin,而這裡沒有任何「某個實體的分身」的意思。比喻整個丟掉,不翻。**不要用「雙胞胎」**;**不要用「孿生」** |
+| 把設計畫到設計像素網格上 | rasterize | `rasterize` | rasterize 照字面譯出來的中文名會用到「光柵」這兩個字,而在光學專案裡,那兩個字已經是一種實體結構的名字。**不要用「光柵化」**;**不要用「重新離散成幾何」**,那是另造的第二個名字 |
+| 服役中／實際拿來跑正事的那一套 | production | 「正式運轉」(首次出現附 production) | 這條問的是**是不是正式在用的那一套**(那支 driver、那組相依),不問規模。**不要用「產線」**——那兩個字在中文第一義是工廠裡的製造流水線,而這個專案本來就會談到製程,讀者會直接接到晶圓廠那條線上去 |
+| 跑的規模有多大 | production-scale | 「正式規模」(首次出現附 production-scale) | 這條問的是**規模**,對比的是 smoke 與 toy 那一類的小輸入;這裡引的那次撤回裡,0.8 ps 的那次 run 不屬於那一類,它正是這個詞要指的規模(見 `RETRACTIONS.zh-TW.md`〈2026-08-17 — gradcheck 失敗的成因被誤判成 float32 的 cancellation〉)。**和上一列不是同一個概念,不可互換**。**不要用「正式運轉規模」**:把兩個概念壓成一個詞,比兩種寫法更難查,因為它讀起來像已經統一好了 |
+| 同一條 FOM 計算鏈的可微分版本 | jnp twin | 「jnp 可微分版本」 | twin 的中文譯法在技術語境會被讀成 digital twin,而這裡沒有任何「某個實體的分身」的意思。比喻整個丟掉,不翻。**不要用「雙胞胎」**;**不要用「孿生」** |
 | `GRADCHECK_MIN_REL_GRAD`:梯度低於峰值某比例的 voxel 不納入 gradcheck 抽樣 | signal floor | 「訊號下限」 | 這個門檻只有一個名字。**不要用「入選下限」**——同一個常數兩個名字,讀者會以為是兩道篩選 |
 | 驗收關卡,代號 G0–G5 | gate | `gate` | 中文補述只用「關卡」。「門檻」保留給 threshold:中文的「門檻」既讀得成過或不過的關口,也讀得成一個數值界線,一個詞兩個意思,所以各釘一個字 |
 | 兩個互不相干的意思:梯度重算用的(`num_checkpoints`),與斷點續跑用的(`opt_state.npz`) | checkpoint | `checkpoint` | 兩義都是上游既有的用法,中文沒有能同時涵蓋兩者又不誤導的詞。**不譯,且每份文件首次出現一定要說是哪一個** |
@@ -158,7 +156,7 @@
 | 機器所在的計算中心 | site | 計算中心 / 機房(site) | **不要用「站台」**——那兩個字中文第一義是月台或網站,後面再接「設定」,整句會被讀成網站設定 |
 | 兩義:`make` 的目標,與 spack 的 `target=` CPU 微架構 | target | Makefile target(相對於 spack 的 `target=`) | 同字兩義,而中文只有「目標」一個詞接得住,譯了就分不出是哪一個。首次出現各自標明 |
 | 作業系統裡一個獨立執行的程式實例 | process | `process` | 中文「行程」第一義是旅遊行程,所以保留英文;而 `dependencies.zh-TW.md`〈授權加起來是什麼〉整段論證掛在「程式碼有沒有進到同一個 process」上,讀錯等於整段讀錯 |
-| CE 頻譜的峰形,以及欄位名 `ridge_lam_um` 裡的同一個字 | ridge | 「頻譜峰形」 | **不要用「稜線」**——中文第一義是山脊;而且這裡的 ridge 也不是脊狀波導(ridge waveguide) |
+| 頻譜的峰形 | ridge | 「頻譜峰形」 | **不要用「稜線」**——中文第一義是山脊;而且這裡的 ridge 也不是脊狀波導(ridge waveguide) |
 | 拿另一個來源核對同一個數字 | reconcile | 核對 / 驗證 | **不要用「對帳」**——那是會計用語 |
 | GitHub 依 tag 自動打包的原始碼 | archive | `archive` | 中文「封存」的語感會蓋掉「壓縮包」的意思,而中文同樣會把 dist tarball 叫成壓縮檔,兩者得分辨得開 |
 | β 隨迭代升高的預定表 | schedule | `schedule` | 中文「排程」第一義是 Slurm 那種工作排程,而這一條講的是 β 怎麼升,譯成「排程」會被讀成另一件事 |
@@ -234,15 +232,12 @@
 
 | 符號 / 縮寫 | English original | 定義該說什麼 |
 |---|---|---|
-| θ | theta | 光纖入射角(度);θ=0 就是完全垂直入射 |
-| ρ / rho | rho | 設計密度場(連續變數,見 `design_rho.npy`);`∂CE/∂rho` 就是對它求梯度 |
+| ρ / rho | rho | 設計密度場(連續變數,見 `design_rho.npy`);`∂FOM/∂rho` 就是對它求梯度 |
 | η / eta | eta | tanh projection 的閾值:`eta_i`=0.5 標稱、`eta_e` eroded、`eta_d` dilated |
 | h | h | 有限差分的步長;h-scan 就是掃不同的 h |
 | N / T | N, T | `reversible ≈ 144·N²·T` 裡,N 是每邊的 cell 數,T 是時間步數 |
 | C | C | `peak(C)` 裡的 C 是 checkpoint 數。斜率是 **268.0329 B/cell/checkpoint**,Turing 上 C=0 的截距 372.18 B/cell(Ada 的截距尚未確立)。舊的斜率已被撤回,見 `RETRACTIONS.zh-TW.md`〈2026-08-22 — checkpoint 記憶體斜率 `291 B/cell/checkpoint` 是 GiB/GB 單位標錯,不是量測被污染〉 |
-| CE | coupling efficiency | 耦合效率,本專案要最大化的那個量 |
 | cell / voxel | cell, voxel | 同一個東西:三維網格的一格。**統一用 voxel**;非寫 cell 不可時,首次出現要寫明「cell 即 voxel」 |
-| 齒 | tooth | 光柵的週期性線條。「逐齒的線寬敏感度」就是逐條線去看線寬變化的影響 |
 | OOM | out of memory | 記憶體爆掉 |
 | PML | perfectly matched layer | FDTD 的吸收邊界 |
 | FD | finite difference | 有限差分 |

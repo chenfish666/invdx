@@ -39,7 +39,7 @@ division of labour:
 The test is easy to apply. A reason may say "the obvious Chinese rendering of
 *process* also means a travel itinerary" — that is **a fact about Chinese**,
 and no edit to any file can falsify it. A reason may not say
-"`optimize.zh-TW.md` currently writes X" — that is **a description of another
+"`env.zh-TW.md` currently writes X" — that is **a description of another
 file's present state**, and that file is being revised because of this page.
 
 The checker only does what a machine can do: string matching and anchor
@@ -88,10 +88,10 @@ explanation, they are claims:
 This is not a list of terms someone thought a glossary ought to contain. It
 was **grown from evidence**.
 
-After the six Chinese counterparts ([`env`](env.md),
+After six Chinese counterparts ([`env`](env.md),
 [`dependencies`](dependencies.md), [`journal`](journal.md),
-[`optimize`](optimize.md), [`RETRACTIONS`](RETRACTIONS.md),
-[`tolerance`](tolerance.md)) were written, each was handed to a reader who had
+[`RETRACTIONS`](RETRACTIONS.md), and two method notes that have since been
+removed) were written, each was handed to a reader who had
 not written it and had not read the English original, and every one of them was
 asked the same question: **"list every term whose meaning you had to guess."**
 Ninety-five came back. This page is what survived from those ninety-five.
@@ -169,10 +169,10 @@ keep the English word, so there is no Chinese join key.
 
 | Concept | English original | Prescribed Chinese form | Why (mechanism and collision) |
 |---|---|---|---|
-| painting a design onto the design pixel grid | rasterize | `rasterize` | These docs are about gratings throughout, and the obvious Chinese rendering of *rasterize* is built on the word for *grating*. Two renderings are banned: the literal one, and a second coined phrase meaning "re-discretise into geometry" |
-| the deployed, actually-used thing | production | 「正式運轉」, glossed with *production* at first use | This row asks **whether something is the set-up actually in service** (that driver, that dependency group), not how big it is. The banned rendering means a factory production line — actively misleading in a project about SOI/DUV fabrication |
-| how big the run is | production-scale | 「正式規模」, glossed with *production-scale* at first use | This row asks about **size**, as opposed to the small smoke and toy inputs; the 0.8 ps, θ=10 pair is not one of those — it is an instance of the size this term names (see `RETRACTIONS.md`〈2026-08-17 — Gradcheck failure mechanism misattributed to float32 cancellation〉). **Not the same concept as the row above, and not interchangeable.** A rendering fusing the two is banned: a fused term is harder to find than two competing ones, because it reads as if it had already been unified |
-| the differentiable version of the same CE chain | jnp twin | 「jnp 可微分版本」 | Both Chinese words for *twin* read as *digital twin*, and nothing here is a twin of a physical thing. The metaphor is dropped rather than translated |
+| painting a design onto the design pixel grid | rasterize | `rasterize` | The obvious Chinese rendering of *rasterize* is built on a Chinese word that, in an optics project, already names a physical structure. Two renderings are banned: the literal one, and a second coined phrase meaning "re-discretise into geometry" |
+| the deployed, actually-used thing | production | 「正式運轉」, glossed with *production* at first use | This row asks **whether something is the set-up actually in service** (that driver, that dependency group), not how big it is. The banned rendering means a factory production line — actively misleading in a project that also talks about fabrication |
+| how big the run is | production-scale | 「正式規模」, glossed with *production-scale* at first use | This row asks about **size**, as opposed to the small smoke and toy inputs; the 0.8 ps run in the retraction cited here is not one of those — it is an instance of the size this term names (see `RETRACTIONS.md`〈2026-08-17 — Gradcheck failure mechanism misattributed to float32 cancellation〉). **Not the same concept as the row above, and not interchangeable.** A rendering fusing the two is banned: a fused term is harder to find than two competing ones, because it reads as if it had already been unified |
+| the differentiable version of the same FOM chain | jnp twin | 「jnp 可微分版本」 | Both Chinese words for *twin* read as *digital twin*, and nothing here is a twin of a physical thing. The metaphor is dropped rather than translated |
 | `GRADCHECK_MIN_REL_GRAD`: voxels below a fraction of peak gradient are not sampled by gradcheck | signal floor | 「訊號下限」 | The threshold gets exactly one name. A second name for the same constant makes a reader believe there are two filters |
 | acceptance gate, coded G0–G5 | gate | `gate` | Only one Chinese word is allowed as a gloss. The Chinese for *threshold* is reserved for thresholds: that one Chinese word reads equally well as a pass/fail checkpoint and as a numeric limit, so each sense is pinned to a different word |
 | two unrelated senses: gradient rematerialisation (`num_checkpoints`) and resume-after-kill (`opt_state.npz`) | checkpoint | `checkpoint` | Both senses are upstream usage, and no Chinese word covers both without misleading. **Untranslated, and every document must say which sense at first use** |
@@ -200,7 +200,7 @@ is that something else.
 | the computing centre the machine lives in | site | "computing centre / machine room", glossed with *site* | The literal Chinese for *site* means a railway platform or a website, so "site configuration" reads as "website configuration" |
 | two senses: a `make` target, and spack's `target=` CPU microarchitecture | target | "Makefile target", distinguished from spack `target=` | Same word, two senses, and Chinese has a single word for both — translate it and the distinction is gone. Each is labelled at first use |
 | one independently executing program instance | process | `process` | The Chinese word first means a travel itinerary, so the English is kept; and the argument in `dependencies.md`〈What the licenses add up to〉 rests entirely on whether code enters the same process, so misreading it misreads that whole section |
-| the shape of the CE spectral peak, and the same word in the field name `ridge_lam_um` | ridge | 「頻譜峰形」 | The literal Chinese means a mountain ridge; and the `ridge` here is not a ridge waveguide either |
+| the shape of a spectral peak | ridge | 「頻譜峰形」 | The literal Chinese means a mountain ridge; and the `ridge` here is not a ridge waveguide either |
 | checking a number against an independent source | reconcile | "check against / verify" | The Chinese word first chosen is accounting vocabulary |
 | the source tarball GitHub builds from a tag | archive | `archive` | The Chinese sense of *archive* is closer to *seal away*, and Chinese would also call a dist tarball a "compressed file" — the two have to stay distinguishable |
 | the schedule by which β rises over iterations | schedule | `schedule` | The Chinese word for *schedule* first means job scheduling, the Slurm sense; this row is about how β ramps, and translating it points the reader at the other thing |
@@ -285,15 +285,12 @@ read.
 
 | Symbol | English original | What the definition should say |
 |---|---|---|
-| θ | theta | Fibre incidence angle in degrees; θ=0 is fully vertical |
-| ρ / rho | rho | The continuous design density field (see `design_rho.npy`); `∂CE/∂rho` differentiates against it |
+| ρ / rho | rho | The continuous design density field (see `design_rho.npy`); `∂FOM/∂rho` differentiates against it |
 | η / eta | eta | The tanh projection threshold: `eta_i`=0.5 nominal, `eta_e` eroded, `eta_d` dilated |
 | h | h | The finite-difference step; an h-scan sweeps it |
 | N / T | N, T | In `reversible ≈ 144·N²·T`, N is cells per edge and T is timesteps |
 | C | C | In `peak(C)`, C is the checkpoint count. The slope is **268.0329 B/cell/checkpoint**; the C=0 intercept on Turing is 372.18 B/cell (Ada's intercept is not established). The old slope is retracted — see `RETRACTIONS.md`〈2026-08-22 — Checkpoint memory slope `291 B/cell/checkpoint` was a GiB/GB unit-label bug, not sensor contamination〉 |
-| CE | coupling efficiency | The quantity being maximised |
 | cell / voxel | cell, voxel | The same thing: one cell of the 3D grid. **Prefer `voxel`**; where `cell` is unavoidable, say "cell means voxel" at first use |
-| tooth | tooth | One of the grating's periodic lines; "per-tooth linewidth sensitivity" is per-line |
 | OOM | out of memory | Memory exhausted |
 | PML | perfectly matched layer | The FDTD absorbing boundary |
 | FD | finite difference | |

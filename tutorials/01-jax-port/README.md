@@ -11,12 +11,12 @@
 > touched. If you want the real practice, **do not open** the answer in `src`
 > first.
 
-Goal: port `toy/fdtd2d.py` (numpy, ~160 lines; the engine you already used to
-reproduce that classic PhC 90-degree bend benchmark) to JAX by hand, and prove
+Goal: port `toy/fdtd2d.py` (numpy, ~160 lines, the self-written 2D engine in
+`src/invdx/toy/`) to JAX by hand, and prove
 it is **bit-for-bit the same physics**. What comes out of this lesson is not
 just a faster engine — it is your ticket to adjoint gradients: once the JAX
 version exists, `jax.grad` can reach through the whole time evolution and hand
-you "transmission with respect to any design parameter" (lesson 2).
+you "transmission with respect to any design parameter".
 
 There are only **three blanks** to fill in, all in this folder's
 [fdtd2d_jax_skeleton.py](fdtd2d_jax_skeleton.py),
@@ -87,9 +87,9 @@ Mirror the "E interior from curl H" block. Two things not to miss:
 1. `Ez_old = Ez` — the snapshot is already in the scaffolding, and it sits
    **before** your update. Think about why the order matters (Mur wants the
    boundary values from the previous step).
-2. `/ eps[1:-1, 1:-1]` — the one and only place the material enters. Lesson 2
-   takes the gradient with respect to exactly this `eps`, so treat it with
-   respect.
+2. `/ eps[1:-1, 1:-1]` — the one and only place the material enters. An
+   adjoint gradient is taken with respect to exactly this `eps`, so treat it
+   with respect.
 
 ## Step 3: Blank C — Mur absorbing boundary (four edges)
 
@@ -163,5 +163,3 @@ Same code, zero edits, running on a GPU — the port's second payoff.
 Compare answers: put your fill-ins next to the library version
 [src/invdx/toy/fdtd2d_jax.py](../../src/invdx/toy/fdtd2d_jax.py) — the way you
 wrote it may differ, but passing at 1e-15 still means it is the same physics.
-Then go on to lesson 2 (`tutorials/02-first-adjoint`): **your first adjoint
-gradient**.

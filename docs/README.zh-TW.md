@@ -25,8 +25,8 @@
 說明行會列出登記過的 problem;`make bilingual` 會印出它找到的對子,並在樓地板
 掉下去時失敗;`make runs` 會列出 run 目錄),要嘛就換回它原本想講的那句定性
 宣稱。留在散文裡的數字只有一種:讀者不必離開這一頁就能證偽它。「六道關卡」
-留了下來,因為六道在句子底下的表裡一列一道全部點名,工作流程圖裡又出現一次
-——多出第七道的那一刻,那兩個字會當場錯得看得出來。「178 支測試」沒有留下來,
+留了下來,因為六道在關卡表裡一列一道全部點名——多出第七道的那一刻,那兩個字
+會當場錯得看得出來。「178 支測試」沒有留下來,
 因為這一頁上沒有任何東西能反駁它。
 
 已知的例外是 [`dependencies.zh-TW.md`](dependencies.zh-TW.md):它還留著三個手抄的數字
@@ -48,18 +48,10 @@
 
 ## 教學
 
-- [`phc-bend-walkthrough.zh-TW.md`](phc-bend-walkthrough.zh-TW.md) —— 親手做,
-  一步一道指令,在兩支引擎上重現光子晶體 90° 彎那個文獻經典基準。
-  **語言:** [English](phc-bend-walkthrough.md) · 繁體中文。
-- [`../tutorials/01-jax-port/`](../tutorials/01-jax-port/) —— 第一課:把一支
+- [`../tutorials/01-jax-port/`](../tutorials/01-jax-port/) —— 把一支
   二維 FDTD 移植到 JAX,骨架刻意留了洞給你自己填。
   **語言:** [English](../tutorials/01-jax-port/README.md) ·
   [繁體中文](../tutorials/01-jax-port/README.zh-TW.md)——課程頁和它的
-  `RESULTS` 參考輸出兩份都有。
-- [`../tutorials/02-first-adjoint/`](../tutorials/02-first-adjoint/) —— 第二課:
-  你的第一個 adjoint 梯度,拿有限差分去對答案。
-  **語言:** [English](../tutorials/02-first-adjoint/README.md) ·
-  [繁體中文](../tutorials/02-first-adjoint/README.zh-TW.md)——課程頁和它的
   `RESULTS` 參考輸出兩份都有。
 
 ## 環境與重現
@@ -81,23 +73,13 @@
 
 ## 怎麼做
 
-- [`new-problem.zh-TW.md`](new-problem.zh-TW.md) —— 把你自己的元件加進工具箱:
-  一個 problem 模組非提供不可的東西有哪些、該從哪一個檔案抄起、在付錢跑模擬
-  之前先怎麼把幾何看一遍,以及那些**會安靜地給你錯答案而不是拋例外**的慣例
-  契約。兩道真的去量一個具體元件的關卡(G2 Part C 與 G4),只要宣告一個
-  `ProblemSpec` 就繼承過來——不要的話得寫下來,理由由那道關卡自己印出;忘了
-  表態會是一個 import error,而不是安靜地少掉一塊覆蓋率。
+- [`new-problem.zh-TW.md`](new-problem.zh-TW.md) —— 加入你自己的 problem:
+  一個 problem 模組要宣告什麼、在付錢跑模擬之前先怎麼把幾何看一遍,以及那些
+  **會安靜地給你錯答案而不是拋例外**的慣例。兩道真的去量一個具體 problem 的
+  關卡(G2 Part C 與 G4),只要宣告一個 `ProblemSpec` 就繼承過來——不要的話得
+  寫下來,理由由那道關卡自己印出;忘了表態會是一個 import error,而不是安靜地
+  少掉一塊覆蓋率。
   **語言:** [English](new-problem.md) · 繁體中文。
-
-## 方法筆記
-
-- [`optimize.zh-TW.md`](optimize.zh-TW.md) —— 逆向設計迴圈:可微分的 Device
-  路徑、FOM、Richardson gradcheck、斷點續跑用的 `checkpoint`(`opt_state.npz`
-  那一種,不是梯度重算用的 `num_checkpoints`),以及怎麼在 Slurm 上跑。
-  **語言:** [English](optimize.md) · 繁體中文。
-- [`tolerance.zh-TW.md`](tolerance.zh-TW.md) —— 為容差而設計的方法筆記,以及
-  回報時的慣例(敏感度圖、corner 評估)。
-  **語言:** [English](tolerance.md) · 繁體中文。
 
 ## 匯出
 
