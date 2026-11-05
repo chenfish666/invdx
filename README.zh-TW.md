@@ -47,24 +47,8 @@ CE 是耦合效率(coupling efficiency)。表裡的 cell 即 voxel,也就是網�
 
 ### 這些成果是在什麼硬體上跑的
 
-- **主力 GPU:NVIDIA Quadro RTX 6000**(Turing TU102,compute capability
-  7.5;24 GB GDDR6,384-bit,672 GB/s;4,608 個 CUDA 核心)。JAX 實際能配置
-  的大約是 23 GiB。上表的速度、容量和記憶體數字都是在這張卡上量的。
-- **第二種架構:NVIDIA RTX 6000 Ada Generation**(AD102,compute
-  capability 8.9;48 GB GDDR6 含 ECC,384-bit,960 GB/s;18,176 個 CUDA
-  核心)。用來在另一個世代的 GPU 上確認記憶體斜率和梯度檢查。
-- **一次 run 只用一張 GPU。** 雙 GPU 腳本是在同一個節點的兩張卡上各跑一次
-  獨立的模擬;沒有任何東西會把一次 run 切開跨卡或跨節點。讓多個模擬共用一張卡
-  也不划算:CUDA MPS 讓總吞吐量少了 58%,單純的 time-slicing(分時輪流用同一張
-  卡)則毫無增益,因為一個 0.5M cell 的模擬就已經讓卡忙到約 80%。小模擬請改用
-  `jax.vmap` 批次跑。
-- **CPU 端(Meep、MPI):一台 16 核的 AMD Zen 4,和一台雙路 Intel Xeon。**
-  FDTD 受記憶體頻寬限制,所以 rank 數少的反而贏:Meep 在 Zen 4 上 8 個 rank
-  達到峰值,在 Xeon 上是 16 個 rank 加 NUMA 綁定。請用
-  `scripts/12_cpu_tuning.py` 掃你自己的機器。
-- **網路:節點之間是 1 GbE。** halo(區域邊界層)交換每一步要約 64 ms,計算
-  本身只要 5–15 ms,所以跨節點的區域分解被排除;改成把互相獨立的工作丟到另一個
-  節點去跑。
+- GPU:NVIDIA Quadro RTX 6000、NVIDIA RTX 6000 Ada Generation
+- CPU:AMD Ryzen 9 7950X、雙路 Intel Xeon Gold
 
 ## 內附的範例 problem
 
