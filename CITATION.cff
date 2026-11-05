@@ -5,10 +5,8 @@ abstract: >-
   A GPU FDTD toolbox for passive photonic devices that runs simulations on
   FDTDX (JAX, GPU, differentiable) and cross-checks that engine against Meep
   through a subprocess bridge, behind one config-driven methodology layer.
-  Includes a six-gate verification framework, adjoint gradients and an
-  inverse-design loop, fabrication-tolerance analysis, GDS and tool-neutral
-  export, and two example problems: a fiber-to-chip grating coupler and a
-  photonic-crystal waveguide bend.
+  Includes a six-gate verification framework, and adjoint gradients with an
+  inverse-design loop.
 type: software
 authors:
   - name: "chenfish666"

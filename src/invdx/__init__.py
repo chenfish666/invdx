@@ -1,6 +1,5 @@
 """invdx — GPU FDTD toolbox for passive photonic devices: simulation,
-cross-engine checks, verification gates, adjoint inverse design,
-fabrication tolerance and export.
+cross-engine checks, verification gates and adjoint inverse design.
 
 Layer A: engines (fdtdx GPU + Meep cross-validation, unmodified deps)
 Layer B: methodology (config/cli/runio, fab, modes, gates, export, conventions)
