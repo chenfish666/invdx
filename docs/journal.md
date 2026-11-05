@@ -194,3 +194,39 @@ throwaway script was deleted. Verified against the real runs:
 `--finalize-only` on `coupler-opt-156` reproduced the throwaway script's
 `design_rho.npy` byte-for-byte (sha256 match). Regression tests in
 `tests/test_grating_coupler_optimize.py`.
+
+## 2026-11-05 — README rewrite, checked against what the code does
+
+Re-ran what runs without a GPU, on a 4-core Intel Xeon cloud VM (CPU only,
+no Meep). Sources are this session's local run directories (not committed):
+`runs/20261105-063051-phc-bend-make/`, `runs/20261105-063514-toy-adjoint/`.
+
+- `pytest tests/` (what G0 wraps): 320 passed, 1 skipped (the handoff test
+  that needs a real run directory), 9 min on 4 cores.
+- `make phc-bend`: stopband (T < −20 dB) at f = 0.255–0.410 and in-gap bend
+  T = 0.844–1.152, in 1m44s. `docs/phc-bend-walkthrough.md` said 0.27–0.41
+  and 0.85–1.1; it now says what the code prints. The conclusion it draws,
+  that the stopband contains the literature gap 0.29–0.41, still holds.
+- `scripts/09_toy_adjoint.py` failed its own gradcheck: pixel (10, 5) at a
+  relative error of 2.28e-5 against the 1e-5 bar, with every adjoint value
+  equal to the recorded transcript. An h-scan put the failure on float64
+  rounding: 1e-6 to 2e-5 at h = 1e-4, 1.1e-7 to 1.9e-7 at h = 1e-3, 1.6e-5 at
+  h = 1e-2 (where truncation takes over). h is now 1e-3; the rerun passes
+  (worst 1.92e-7) and every optimization line matches the recorded transcript
+  to the printed digit.
+
+Four descriptions were wrong, rather than any number:
+
+- `make verify` (`scripts/07`) was called a second-engine check. It
+  re-measures on fdtdx, through the block-geometry route instead of the
+  optimizer's Device voxels; Meep is not involved.
+- The coupler's agreement with Meep rests on `REFERENCE_PEAK_DB = -10.1` in
+  `scripts/03_grating_coupler_baseline.py`, from a Meep run made outside this
+  repo; the bridge has no grating-coupler task. That is now said next to the
+  constant and in the README.
+- `docs/dependencies.md` credited time-reversible backpropagation with making
+  the optimization fit on one GPU. The production path is checkpointed, and
+  `docs/optimize.md` already recorded reversible as worse on these scenes.
+- The README told readers to run `make verify RUN=… --field` and to "add
+  `--corners --s11`", which the target could not pass on. `make verify` now
+  takes `ARGS=`.

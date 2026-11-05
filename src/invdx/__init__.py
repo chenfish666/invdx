@@ -1,10 +1,12 @@
-"""invdx — photonic inverse-design toolbox.
+"""invdx — GPU FDTD toolbox for passive photonic devices: simulation,
+cross-engine checks, verification gates, adjoint inverse design,
+fabrication tolerance and export.
 
 Layer A: engines (fdtdx GPU + Meep cross-validation, unmodified deps)
 Layer B: methodology (config/cli/runio, fab, modes, gates, export, conventions)
 Layer C: toy (self-written minimal FDTD, learning + independent reference)
 
-Import discipline: modules that must run inside the meep conda env
+Import discipline: modules that must run inside the Meep environment
 (runio, fab.filters_np, fab.measure, modes, engines.conventions,
 engines.meep_worker) may only use numpy/scipy/autograd — never jax/fdtdx.
 """

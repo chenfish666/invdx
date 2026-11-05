@@ -2,11 +2,13 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "invdx"
 abstract: >-
-  A photonic inverse-design toolbox combining a fast GPU FDTD engine (FDTDX)
-  with an independent, authoritative cross-validation engine (Meep) behind
-  one config-driven, validation-gated methodology layer. Includes a
-  six-gate validation framework, fabrication-robustness utilities, and an
-  adjoint-based inverse-design driver for a photonic grating coupler.
+  A GPU FDTD toolbox for passive photonic devices that runs simulations on
+  FDTDX (JAX, GPU, differentiable) and cross-checks that engine against Meep
+  through a subprocess bridge, behind one config-driven methodology layer.
+  Includes a six-gate verification framework, adjoint gradients and an
+  inverse-design loop, fabrication-tolerance analysis, GDS and tool-neutral
+  export, and two example problems: a fiber-to-chip grating coupler and a
+  photonic-crystal waveguide bend.
 type: software
 authors:
   - name: "chenfish666"

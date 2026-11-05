@@ -2,12 +2,17 @@
 
 [← back to docs index](README.md)
 
-# Inverse design on the grating coupler
+# The inverse-design loop, worked on the grating-coupler example
 
-`scripts/15_grating_coupler_optimize.py` is the production inverse-design driver in
-invdx: it walks the grating profile of the `grating_coupler` problem (see the
-[`grating_coupler` problem](../README.md#problems-srcinvdxproblems) for the problem
-itself) with adjoint gradients instead of hand-picked geometry sweeps.
+The optimizer itself, `src/invdx/optimize.py`, is problem-independent: Adam on
+a latent vector, driven by any `vg_fn(p, beta) -> (loss, dloss/dp)`. The
+driver that ships with it, `scripts/15_grating_coupler_optimize.py`, runs that
+loop on the bundled `grating_coupler` example (see the
+[`grating_coupler` problem](../README.md#example-problems) for the problem
+itself), walking the grating profile with adjoint gradients instead of
+hand-picked geometry sweeps. Read it as the reference for how a driver is put
+together, not as a finished coupler design: the full-scale runs recorded in the
+[journal](journal.md) were stopped before they converged.
 
 ```bash
 uv run python scripts/15_grating_coupler_optimize.py --tag opt --gradcheck   # ~13 h, 1 GPU

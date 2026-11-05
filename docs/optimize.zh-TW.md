@@ -2,12 +2,17 @@
 
 [← back to docs index](README.md)
 
-# 在 grating coupler 上做逆向設計
+# 逆向設計迴圈,以 grating coupler 範例示範
 
-`scripts/15_grating_coupler_optimize.py` 是 invdx 正式運轉(production)在用
-的那支逆向設計 driver:它用 adjoint 梯度直接挪動 `grating_coupler` 這個
-problem 的光柵剖面,不必人工挑幾組幾何參數去掃(題目本身見
-[`grating_coupler` problem](../README.md#problems-srcinvdxproblems))。
+優化器本身(`src/invdx/optimize.py`)和題目無關:一支跑在 latent 向量上的
+Adam,只要給它任何一個 `vg_fn(p, beta) -> (loss, dloss/dp)` 就能跑。跟它一起
+附上的 driver(這裡指把整條優化迴圈串起來跑的主程式)
+`scripts/15_grating_coupler_optimize.py`,是把這個迴圈套在 repo 內附的
+`grating_coupler` 範例上:它用 adjoint 梯度直接挪動光柵剖面,不必人工挑幾組
+幾何參數去掃(題目本身見
+[`grating_coupler` problem](../README.md#example-problems))。請把它當成
+「一支 driver 該怎麼組」的參考實作來讀,而不是一個做完的耦合器設計:
+[工作日誌](journal.zh-TW.md)裡記錄的那幾次完整尺寸的 run,都在收斂之前就停了。
 
 ```bash
 uv run python scripts/15_grating_coupler_optimize.py --tag opt --gradcheck   # ~13 h, 1 GPU
