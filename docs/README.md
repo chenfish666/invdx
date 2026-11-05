@@ -31,8 +31,8 @@ problems; `make bilingual` prints the pairs it found and fails when a floor
 drops; `make runs` lists the run directories) or it is replaced by the
 qualitative claim it was standing in for. The counts that do survive in prose
 are the ones a reader can falsify without leaving the page: "six gates" stays
-because all six are named, one per row, in the table under the sentence and
-again in the workflow diagram, so a seventh gate makes the word visibly wrong.
+because all six are named, one per row, in the gate table, so a seventh gate
+makes the word visibly wrong.
 "178 tests" did not stay, because nothing on the page could ever contradict it.
 
 The known exception is [`dependencies.md`](dependencies.md), which still

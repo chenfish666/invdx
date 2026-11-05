@@ -229,3 +229,38 @@ bug:`run_loop` 進迴圈之前的 `state.beta` 是
 拿真實的 run 驗過:對 `coupler-opt-156` 跑 `--finalize-only`,重現出來的
 `design_rho.npy` 與拋棄式腳本產物逐位元組相同(sha256 吻合)。回歸測試在
 `tests/test_grating_coupler_optimize.py`。
+
+## 2026-11-05 — 重寫 README,並拿程式碼本身核對一遍
+
+在一台 4 核的 Intel Xeon 雲端 VM 上(只有 CPU,沒有 Meep),把不需要 GPU 的
+部分重跑了一次。出處是這次在本機產生的 run 目錄(未 commit):
+`runs/20261105-063051-phc-bend-make/`、`runs/20261105-063514-toy-adjoint/`。
+
+- `pytest tests/`(也就是 G0 包起來的那一套):320 個通過、1 個跳過(handoff
+  那個測試需要一個真正的 run 目錄),4 核上跑 9 分鐘。
+- `make phc-bend`:阻帶(T < −20 dB)落在 f = 0.255–0.410,能隙內彎角透射
+  T = 0.844–1.152,耗時 1 分 44 秒。`docs/phc-bend-walkthrough.zh-TW.md` 原本
+  寫的是 0.27–0.41 和 0.85–1.1;現在改成程式實際印出來的值。它下的結論——阻帶
+  涵蓋文獻的能隙 0.29–0.41——仍然成立。
+- `scripts/09_toy_adjoint.py` 沒通過它自己的 gradcheck:像素 (10, 5) 的相對
+  誤差是 2.28e-5,超過 1e-5 的門檻,而所有 adjoint 數值都和記錄下來的輸出
+  一模一樣。掃一遍 h 之後,問題落在 float64 的捨入誤差上:h = 1e-4 時是 1e-6
+  到 2e-5,h = 1e-3 時是 1.1e-7 到 1.9e-7,h = 1e-2 時是 1.6e-5(換成截斷誤差
+  主導)。h 現在是 1e-3;重跑通過(最差 1.92e-7),而且優化那幾行印出來的
+  每一位都和記錄下來的輸出相同。
+
+錯的是四段描述,不是任何一個數字:
+
+- `make verify`(`scripts/07`)原本被說成「拿第二支引擎核對」。它其實是在
+  fdtdx 上重新量,走的是區塊幾何那條路,而不是優化器的 Device voxel;Meep
+  完全沒有參與。
+- 耦合器和 Meep 的一致性,靠的是 `scripts/03_grating_coupler_baseline.py`
+  裡的 `REFERENCE_PEAK_DB = -10.1`,那是在這個 repo 之外跑的一次 Meep;
+  bridge 裡沒有 grating coupler 的工作。現在這件事寫在那個常數旁邊,也寫進了
+  README。
+- `docs/dependencies.zh-TW.md` 把「優化塞得進一張 GPU」歸功於時間可逆的反向
+  傳播。正式運轉(production)用的路徑其實是 checkpoint(梯度重算用的那種),
+  而 `docs/optimize.zh-TW.md` 早就記錄了可逆模式在這些模擬場域(scene)上反而
+  更差。
+- README 叫讀者跑 `make verify RUN=… --field`、以及「再加 `--corners --s11`」,
+  但那個 Makefile target 根本傳不過去。`make verify` 現在接受 `ARGS=`。
